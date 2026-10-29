@@ -1,0 +1,2359 @@
+openapi: 3.0.3
+info:
+  title: ПодписьОнлайн — API отзыва сертификата при потере телефона
+  version: '1.0.0'
+  description: |
+    API сервиса «ПодписьОнлайн» для отзыва сертификата ключа проверки
+    электронной подписи при потере или компрометации телефона клиента.
+
+    Источник требований — Jira SCRUM-2142 (эпик SCRUM-2139).
+
+    ## Назначение и границы
+
+    API решает три задачи:
+
+    1. идентифицировать сертификат, который требуется отозвать;
+    2. инициировать отдельную операцию отзыва сертификата;
+    3. получить текущее состояние и подтверждённый результат операции.
+
+    В границы API не входят:
+
+    - выпуск сертификата и проверка личности при выпуске;
+    - подписание документов и проверка подписи;
+    - аутентификация клиента в приложении партнёра;
+    - восстановление доступа и выпуск нового сертификата;
+    - административные операции удостоверяющего центра (УЦ).
+
+    Операции чтения сертификата включены только для идентификации цели
+    отзыва. Управление сертификатами, их выпуск, продление и проверка
+    подписи в границы этой спецификации не входят.
+
+    ## Участники
+
+    | Участник | Роль в сценарии |
+    |---|---|
+    | Клиент | Инициирует отзыв своего сертификата после повторной идентификации, если потерянное устройство недоступно |
+    | Сотрудник партнёра | Инициирует отзыв в пределах предоставленных полномочий |
+    | Система партнёра | Вызывает API по машинной идентичности в рамках разрешённого сценария |
+    | «ПодписьОнлайн» | Проверяет полномочия, создаёт операцию, ведёт состояние и взаимодействует с УЦ |
+    | Удостоверяющий центр | Выполняет отзыв сертификата и подтверждает его результат |
+
+    ## Основной сценарий
+
+    1. Инициатор аутентифицируется. При потере телефона клиент проходит
+       повторную идентификацию в приложении партнёра или через иной
+       согласованный канал; обычная аутентификация на потерянном устройстве
+       невозможна.
+    2. Инициатор находит сертификат (`GET /certificates`) и проверяет его
+       состояние (`GET /certificates/{certificateId}`).
+    3. Инициатор создаёт операцию отзыва (`POST /certificate-revocations`)
+       с обязательным `Idempotency-Key`.
+    4. Сервис проверяет полномочия и состояние сертификата, создаёт операцию
+       и возвращает `202 Accepted`. Принятие запроса не означает, что
+       сертификат уже отозван.
+    5. Сервис асинхронно передаёт запрос в УЦ. Операция переходит в
+       `SUBMITTED`.
+    6. УЦ подтверждает отзыв — операция и сертификат переходят в `REVOKED`.
+       При отказе УЦ операция переходит в `REJECTED`, при неопределённом
+       результате — в `UNKNOWN`.
+    7. Инициатор опрашивает состояние операции
+       (`GET /certificate-revocations/{revocationId}`) с учётом
+       `Retry-After` и получает подтверждённый результат.
+
+    Если сертификат уже отозван или по нему уже есть незавершённая операция,
+    `POST` возвращает `409` с машиночитаемым кодом. Для активной операции
+    в заголовке `Location` возвращается ссылка на неё.
+
+    ## Ключевые принципы
+
+    - `202 Accepted` подтверждает только приём запроса. Факт отзыва
+      подтверждается исключительно результатом УЦ.
+    - Одна операция относится к одному сертификату. Массовый отзыв
+      нескольких сертификатов одной операцией не поддерживается.
+    - Для сертификата допускается не более одной незавершённой операции
+      отзыва.
+    - Результат `UNKNOWN` не является ни успехом, ни окончательной ошибкой.
+      Повторный запрос на отзыв блокируется до завершения сверки с УЦ.
+    - Состояние сертификата `REVOKED` устанавливается только после
+      подтверждения УЦ. Локальное принятие запроса не меняет сертификат на
+      отозванный.
+    - Идентификатор сертификата или операции не предоставляет прав на
+      операцию. Полномочия проверяются по токену и принадлежности объекта.
+
+    ## Состояния операции отзыва
+
+    | Состояние | Значение | Терминальное |
+    |---|---|---|
+    | `ACCEPTED` | Запрос принят, проверки пройдены, операция в очереди; в УЦ ещё не передана | Нет |
+    | `SUBMITTED` | Запрос передан в УЦ, подтверждение не получено | Нет |
+    | `REVOKED` | УЦ подтвердил отзыв сертификата | Да, успех |
+    | `REJECTED` | Отзыв отклонён по бизнес-причине; внешний эффект отсутствует | Да, ошибка |
+    | `FAILED` | Операция не выполнена из-за технической ошибки; внешний эффект подтверждённо отсутствует | Да, ошибка |
+    | `UNKNOWN` | Результат не установлен; запрос мог быть получен УЦ | Нет |
+
+    Допустимые переходы описаны в `x-state-machine`. Переходы из терминальных
+    состояний не выполняются: для новой попытки создаётся новая операция с
+    новым `revocationId`.
+
+    ## Состояние сертификата
+
+    | Статус | Значение |
+    |---|---|
+    | `ACTIVE` | Сертификат не отозван; срок действия проверяется отдельно |
+    | `REVOCATION_PENDING` | Есть незавершённая операция отзыва; сертификат ещё не отозван |
+    | `REVOKED` | УЦ подтвердил отзыв |
+    | `UNKNOWN` | Актуальное состояние не подтверждено УЦ |
+
+    Срок действия сертификата отражается отдельно полем `validityStatus`
+    (`VALID`, `NOT_YET_VALID`, `EXPIRED`) и не смешивается со статусом отзыва.
+    Это позволяет отличить истёкший сертификат от отозванного.
+
+    ## Авторизация
+
+    - Система партнёра использует `partnerOAuth` (OAuth 2.0 Client
+      Credentials). Партнёр определяется по `client_id` токена; передача
+      `partnerId` в запросе не предусмотрена.
+    - Сотрудник партнёра использует `partnerEmployeeOAuth` (Authorization
+      Code через корпоративный IdP партнёра). Токен содержит идентификатор
+      сотрудника, партнёра и разрешение на отзыв.
+    - Клиент использует `clientOAuth` (Authorization Code с PKCE). `sub`
+      токена должен совпадать с `clientId` сертификата.
+    - Для отзыва клиентом токен должен быть выпущен после повторной
+      идентификации. Максимальный возраст аутентификации и требования к
+      `acr`/`amr` определяются отдельно (OQ-01).
+    - Партнёрский токен действует только в пределах клиентов своего
+      партнёра. Чужой сертификат неотличим от отсутствующего: возвращается
+      `404`, а не `403`.
+    - Недостаточный scope или отсутствие роли дают `403 ACCESS_DENIED`.
+
+    ## Идентификация сертификата
+
+    - Основной идентификатор — `certificateId` (UUID), полученный через
+      `GET /certificates`.
+    - Дополнительно сертификат описывается серийным номером, издателем,
+      субъектом и отпечатком SHA-256. Отпечаток позволяет однозначно
+      сопоставить сертификат с данными УЦ.
+    - Клиент видит только свои сертификаты. Партнёр — только сертификаты
+      клиентов своего партнёра. Фильтр `clientId` для партнёрского токена
+      обязателен.
+    - Перед созданием операции сервис повторно проверяет принадлежность
+      сертификата инициатору, его состояние и срок действия.
+
+    ## Идемпотентность и повторная отправка
+
+    - `POST /certificate-revocations` требует `Idempotency-Key`.
+    - Ключ и отпечаток запроса хранятся 24 часа. Повтор с тем же ключом и
+      тем же телом возвращает сохранённый ответ с
+      `Idempotent-Replayed: true`.
+    - Повтор с тем же ключом и другим телом — `409 IDEMPOTENCY_KEY_REUSED`.
+    - Параллельный запрос с тем же ключом — `409 IDEMPOTENCY_KEY_IN_PROGRESS`
+      (допустим повтор после задержки).
+    - Независимо от ключа действует бизнес-уникальность: одна незавершённая
+      операция на сертификат. Повторный `POST` с новым ключом при активной
+      операции возвращает `409 REVOCATION_ALREADY_IN_PROGRESS` и `Location`
+      существующей операции.
+    - При результате `UNKNOWN` повторный `POST` возвращает
+      `409 REVOCATION_RESULT_UNKNOWN`: сначала выполняется сверка с УЦ.
+    - После терминального `FAILED` или `REJECTED` новая операция допускается
+      только после проверки актуального состояния сертификата.
+
+    ## Ошибки и повторные попытки
+
+    Все ошибки API возвращаются в модели `Problem`: машиночитаемый `code`,
+    `traceId`, время, признак `retryable` и, для ошибок валидации, список
+    `issues`.
+
+    Бизнес-ошибки (сертификат уже отозван, недопустимое состояние, отказ УЦ)
+    отличаются от технических (недоступность УЦ, тайм-аут, ошибка шлюза).
+    Автоматический повтор HTTP-запроса допускается только при
+    `retryable: true` и с учётом `Retry-After`.
+
+    Ошибки взаимодействия с УЦ не возвращаются в ответе на `POST`: операция
+    уже создана, а её результат отражается в состоянии. При тайм-ауте или
+    недоступности УЦ операция переходит в `UNKNOWN`, а не в `FAILED`.
+
+    ## Ограничения
+
+    - Один сертификат на одну операцию отзыва.
+    - Не более одной незавершённой операции на сертификат.
+    - `reasonDetails` — до 1000 символов, `comment` — до 500 символов.
+    - Страница списка сертификатов — до 100 элементов.
+    - Сроки хранения операций и аудита, тайм-ауты и контракт УЦ требуют
+      согласования (OQ-02, OQ-06).
+
+    ## Соглашения
+
+    - JSON в кодировке UTF-8; время — RFC 3339 в UTC.
+    - Идентификаторы ресурсов — UUID, кроме внешних идентификаторов
+      партнёра и УЦ.
+    - Ошибки — RFC 7807-совместимая модель `Problem`.
+    - Расширения `x-*` фиксируют правила, которые не выражаются средствами
+      OpenAPI 3.0.
+servers:
+  - url: https://api.podpis-online.example/v1
+    description: Продуктивный контур
+  - url: https://staging-api.podpis-online.example/v1
+    description: Тестовый контур
+tags:
+  - name: certificates
+    description: Поиск и чтение сертификатов для идентификации цели отзыва
+  - name: certificate-revocations
+    description: Инициирование отзыва сертификата и получение результата
+paths:
+  /certificates:
+    get:
+      tags:
+        - certificates
+      operationId: listCertificates
+      summary: Найти сертификаты клиента
+      description: |
+        Возвращает сертификаты, доступные инициатору, с фильтрацией по
+        клиенту, статусу отзыва, сроку действия и серийному номеру.
+
+        Клиентский токен возвращает только сертификаты субъекта токена.
+        Партнёрский токен требует явного `clientId` и возвращает только
+        сертификаты клиентов этого партнёра.
+
+        Операция используется для идентификации цели отзыва, когда
+        `certificateId` неизвестен, например при потере телефона. Пустой
+        результат возвращается как `200` с пустым `items`, а не как `404`.
+
+        Сортировка — по убыванию `validFrom`. Пагинация курсорная.
+      security:
+        - partnerOAuth:
+            - certificates:read
+        - partnerEmployeeOAuth:
+            - certificates:read
+        - clientOAuth:
+            - certificates:read
+      parameters:
+        - $ref: '#/components/parameters/ClientIdFilter'
+        - $ref: '#/components/parameters/CertificateStatusFilter'
+        - $ref: '#/components/parameters/CertificateValidityStatusFilter'
+        - $ref: '#/components/parameters/SerialNumberFilter'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/XRequestId'
+      responses:
+        '200':
+          description: Страница сертификатов, доступных инициатору
+          headers:
+            Cache-Control:
+              description: Ответ содержит сведения о состоянии сертификата и не кэшируется
+              schema:
+                type: string
+                example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificatePage'
+              examples:
+                activeAndRevoked:
+                  summary: Действующий и отозванный сертификаты клиента
+                  value:
+                    items:
+                      - certificateId: 7b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d
+                        clientId: client-8f3a2c
+                        serialNumber: 01A2B3C4D5E6F7089A
+                        subject: CN=Иванов Иван Иванович, O=ООО «Клиент»
+                        issuer: CN=УЦ ПодписьОнлайн, O=АО «УЦ»
+                        fingerprintSha256: 3c9e1f2a4b5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7
+                        status: ACTIVE
+                        validityStatus: VALID
+                        validFrom: '2026-01-15T00:00:00Z'
+                        validTo: '2027-01-15T00:00:00Z'
+                        issuedAt: '2026-01-15T10:30:00Z'
+                        revokedAt: null
+                        activeRevocationId: null
+                        lastRevocationId: null
+                        statusCheckedAt: '2026-10-29T18:20:00Z'
+                      - certificateId: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d
+                        clientId: client-8f3a2c
+                        serialNumber: 09F8E7D6C5B4A39281
+                        subject: CN=Иванов Иван Иванович, O=ООО «Клиент»
+                        issuer: CN=УЦ ПодписьОнлайн, O=АО «УЦ»
+                        fingerprintSha256: 8d7c6b5a4938271605f4e3d2c1b0a99887766554433221100ffeeddccbbaa998
+                        status: REVOKED
+                        validityStatus: EXPIRED
+                        validFrom: '2025-01-15T00:00:00Z'
+                        validTo: '2026-01-15T00:00:00Z'
+                        issuedAt: '2025-01-15T10:30:00Z'
+                        revokedAt: '2026-10-29T18:30:00Z'
+                        revocationReason: PHONE_LOST
+                        activeRevocationId: null
+                        lastRevocationId: d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f70
+                        statusCheckedAt: '2026-10-29T18:31:00Z'
+                    nextCursor: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /certificates/{certificateId}:
+    parameters:
+      - $ref: '#/components/parameters/CertificateId'
+    get:
+      tags:
+        - certificates
+      operationId: getCertificate
+      summary: Получить сертификат и его состояние
+      description: |
+        Возвращает карточку сертификата: идентификаторы, субъект, издателя,
+        отпечаток, статус отзыва, срок действия и сведения о текущей или
+        последней операции отзыва.
+
+        Статус отзыва отражает последнее подтверждённое состояние. Время
+        последней проверки — `statusCheckedAt`. Если состояние не подтверждено
+        УЦ, возвращается `status: UNKNOWN`.
+
+        Сертификат другого клиента или партнёра неотличим от отсутствующего:
+        возвращается `404 CERTIFICATE_NOT_FOUND`.
+      security:
+        - partnerOAuth:
+            - certificates:read
+        - partnerEmployeeOAuth:
+            - certificates:read
+        - clientOAuth:
+            - certificates:read
+      parameters:
+        - $ref: '#/components/parameters/XRequestId'
+      responses:
+        '200':
+          description: Карточка сертификата
+          headers:
+            Cache-Control:
+              description: Ответ содержит сведения о состоянии сертификата и не кэшируется
+              schema:
+                type: string
+                example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Certificate'
+              examples:
+                active:
+                  summary: Действующий сертификат без операций отзыва
+                  value:
+                    certificateId: 7b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d
+                    clientId: client-8f3a2c
+                    serialNumber: 01A2B3C4D5E6F7089A
+                    subject: CN=Иванов Иван Иванович, O=ООО «Клиент»
+                    issuer: CN=УЦ ПодписьОнлайн, O=АО «УЦ»
+                    fingerprintSha256: 3c9e1f2a4b5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7
+                    status: ACTIVE
+                    validityStatus: VALID
+                    validFrom: '2026-01-15T00:00:00Z'
+                    validTo: '2027-01-15T00:00:00Z'
+                    issuedAt: '2026-01-15T10:30:00Z'
+                    revokedAt: null
+                    activeRevocationId: null
+                    lastRevocationId: null
+                    statusCheckedAt: '2026-10-29T18:20:00Z'
+                revocationPending:
+                  summary: Сертификат с незавершённой операцией отзыва
+                  value:
+                    certificateId: 7b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d
+                    clientId: client-8f3a2c
+                    serialNumber: 01A2B3C4D5E6F7089A
+                    subject: CN=Иванов Иван Иванович, O=ООО «Клиент»
+                    issuer: CN=УЦ ПодписьОнлайн, O=АО «УЦ»
+                    fingerprintSha256: 3c9e1f2a4b5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7
+                    status: REVOCATION_PENDING
+                    validityStatus: VALID
+                    validFrom: '2026-01-15T00:00:00Z'
+                    validTo: '2027-01-15T00:00:00Z'
+                    issuedAt: '2026-01-15T10:30:00Z'
+                    revokedAt: null
+                    activeRevocationId: d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f70
+                    lastRevocationId: d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f70
+                    statusCheckedAt: '2026-10-29T18:25:00Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/CertificateNotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /certificate-revocations:
+    post:
+      tags:
+        - certificate-revocations
+      operationId: createCertificateRevocation
+      summary: Инициировать отзыв сертификата
+      description: |
+        Создаёт отдельную операцию отзыва сертификата и асинхронно передаёт
+        запрос в УЦ.
+
+        `202 Accepted` означает только приём запроса. Сертификат не считается
+        отозванным до подтверждения УЦ. Для получения результата используйте
+        `GET /certificate-revocations/{revocationId}`.
+
+        Порядок проверок:
+
+        1. токен, scope и полномочия инициатора;
+        2. принадлежность сертификата инициатору или его партнёру;
+        3. статус отзыва: `REVOKED`, активная операция, `UNKNOWN`;
+        4. срок действия: `validityStatus` должен быть `VALID`;
+        5. корректность причины и обязательность `reasonDetails` для `OTHER`.
+
+        Для сертификата допускается одна незавершённая операция. Повторный
+        `POST` с новым `Idempotency-Key` при активной операции возвращает
+        `409 REVOCATION_ALREADY_IN_PROGRESS` и `Location` существующей
+        операции. При `UNKNOWN` возвращается `409 REVOCATION_RESULT_UNKNOWN`:
+        повторная отправка без сверки запрещена.
+
+        Ошибки УЦ не возвращаются в этом ответе: операция уже создана, а её
+        состояние отражает результат взаимодействия с УЦ.
+      security:
+        - partnerOAuth:
+            - certificate-revocations:write
+        - partnerEmployeeOAuth:
+            - certificate-revocations:write
+        - clientOAuth:
+            - certificate-revocations:write
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/XRequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCertificateRevocationRequest'
+            examples:
+              phoneLost:
+                summary: Отзыв сертификата при потере телефона
+                value:
+                  certificateId: 7b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d
+                  reason: PHONE_LOST
+                  reasonDetails: Телефон утерян 29.10.2026; доступ восстановлен на новом устройстве
+                  incidentAt: '2026-10-29T18:20:00Z'
+                  comment: Обращение клиента в поддержку партнёра
+              deviceCompromised:
+                summary: Отзыв при компрометации устройства
+                value:
+                  certificateId: 7b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d
+                  reason: DEVICE_COMPROMISED
+                  reasonDetails: Обнаружено вредоносное ПО и несанкционированный доступ к устройству
+                  incidentAt: '2026-10-29T17:55:00Z'
+      responses:
+        '202':
+          description: |
+            Запрос принят. Создана операция отзыва; сертификат ещё не отозван.
+            Состояние операции — `ACCEPTED` или `SUBMITTED`.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            Idempotent-Replayed:
+              $ref: '#/components/headers/IdempotentReplayed'
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateRevocation'
+              examples:
+                accepted:
+                  summary: Операция принята и поставлена в очередь
+                  value:
+                    revocationId: d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f70
+                    certificate:
+                      certificateId: 7b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d
+                      serialNumber: 01A2B3C4D5E6F7089A
+                      subject: CN=Иванов Иван Иванович, O=ООО «Клиент»
+                      issuer: CN=УЦ ПодписьОнлайн, O=АО «УЦ»
+                      fingerprintSha256: 3c9e1f2a4b5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7
+                      status: REVOCATION_PENDING
+                      validityStatus: VALID
+                      statusCheckedAt: '2026-10-29T18:25:00Z'
+                    status: ACCEPTED
+                    reason: PHONE_LOST
+                    reasonDetails: Телефон утерян 29.10.2026; доступ восстановлен на новом устройстве
+                    incidentAt: '2026-10-29T18:20:00Z'
+                    initiator:
+                      type: CLIENT
+                      id: client-8f3a2c
+                      displayName: null
+                    createdAt: '2026-10-29T18:25:00Z'
+                    updatedAt: '2026-10-29T18:25:00Z'
+                    submittedAt: null
+                    completedAt: null
+                    revokedAt: null
+                    ucRequestId: null
+                    attemptCount: 0
+                    nextRetryAt: '2026-10-29T18:25:01Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/CertificateNotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+  /certificate-revocations/{revocationId}:
+    parameters:
+      - $ref: '#/components/parameters/RevocationId'
+    get:
+      tags:
+        - certificate-revocations
+      operationId: getCertificateRevocation
+      summary: Получить состояние и результат отзыва
+      description: |
+        Возвращает текущее состояние операции, подтверждённый результат,
+        состояние сертификата и сведения о последней попытке взаимодействия
+        с УЦ.
+
+        Пока операция не завершена, в ответе может присутствовать
+        `Retry-After`; инициатору рекомендуется опрашивать ресурс с учётом
+        этого заголовка. Для терминальных состояний `REVOKED`, `REJECTED` и
+        `FAILED` дальнейший опрос не требуется.
+
+        `UNKNOWN` означает, что результат ещё не установлен. Это не успех и
+        не окончательная ошибка; сервис продолжает сверку с УЦ.
+
+        Операция другого инициатора неотличима от отсутствующей: возвращается
+        `404 REVOCATION_NOT_FOUND`.
+      security:
+        - partnerOAuth:
+            - certificate-revocations:read
+        - partnerEmployeeOAuth:
+            - certificate-revocations:read
+        - clientOAuth:
+            - certificate-revocations:read
+      parameters:
+        - $ref: '#/components/parameters/XRequestId'
+      responses:
+        '200':
+          description: Текущее состояние операции отзыва
+          headers:
+            Cache-Control:
+              description: Состояние операции не кэшируется
+              schema:
+                type: string
+                example: no-store
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateRevocation'
+              examples:
+                revoked:
+                  summary: УЦ подтвердил отзыв
+                  value:
+                    revocationId: d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f70
+                    certificate:
+                      certificateId: 7b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d
+                      serialNumber: 01A2B3C4D5E6F7089A
+                      subject: CN=Иванов Иван Иванович, O=ООО «Клиент»
+                      issuer: CN=УЦ ПодписьОнлайн, O=АО «УЦ»
+                      fingerprintSha256: 3c9e1f2a4b5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7
+                      status: REVOKED
+                      validityStatus: VALID
+                      statusCheckedAt: '2026-10-29T18:31:00Z'
+                    status: REVOKED
+                    reason: PHONE_LOST
+                    reasonDetails: Телефон утерян 29.10.2026; доступ восстановлен на новом устройстве
+                    incidentAt: '2026-10-29T18:20:00Z'
+                    initiator:
+                      type: CLIENT
+                      id: client-8f3a2c
+                      displayName: null
+                    createdAt: '2026-10-29T18:25:00Z'
+                    updatedAt: '2026-10-29T18:31:00Z'
+                    submittedAt: '2026-10-29T18:25:02Z'
+                    completedAt: '2026-10-29T18:31:00Z'
+                    revokedAt: '2026-10-29T18:30:58Z'
+                    ucRequestId: UC-REV-2026-000458
+                    confirmationSource: UC_API
+                    attemptCount: 2
+                    nextRetryAt: null
+                rejected:
+                  summary: УЦ отказал в отзыве
+                  value:
+                    revocationId: d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f70
+                    certificate:
+                      certificateId: 7b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d
+                      serialNumber: 01A2B3C4D5E6F7089A
+                      subject: CN=Иванов Иван Иванович, O=ООО «Клиент»
+                      issuer: CN=УЦ ПодписьОнлайн, O=АО «УЦ»
+                      fingerprintSha256: 3c9e1f2a4b5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7
+                      status: ACTIVE
+                      validityStatus: VALID
+                      statusCheckedAt: '2026-10-29T18:31:00Z'
+                    status: REJECTED
+                    reason: PHONE_LOST
+                    reasonDetails: Телефон утерян 29.10.2026; доступ восстановлен на новом устройстве
+                    incidentAt: '2026-10-29T18:20:00Z'
+                    initiator:
+                      type: CLIENT
+                      id: client-8f3a2c
+                      displayName: null
+                    createdAt: '2026-10-29T18:25:00Z'
+                    updatedAt: '2026-10-29T18:31:00Z'
+                    submittedAt: '2026-10-29T18:25:02Z'
+                    completedAt: '2026-10-29T18:31:00Z'
+                    revokedAt: null
+                    ucRequestId: UC-REV-2026-000458
+                    attemptCount: 2
+                    nextRetryAt: null
+                    error:
+                      code: UC_REVOCATION_REFUSED
+                      message: 'УЦ отказал в отзыве: сертификат не найден в реестре'
+                      retryable: false
+                      occurredAt: '2026-10-29T18:31:00Z'
+                unknown:
+                  summary: Результат не установлен, выполняется сверка
+                  value:
+                    revocationId: d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f70
+                    certificate:
+                      certificateId: 7b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d
+                      serialNumber: 01A2B3C4D5E6F7089A
+                      subject: CN=Иванов Иван Иванович, O=ООО «Клиент»
+                      issuer: CN=УЦ ПодписьОнлайн, O=АО «УЦ»
+                      fingerprintSha256: 3c9e1f2a4b5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7
+                      status: REVOCATION_PENDING
+                      validityStatus: VALID
+                      statusCheckedAt: '2026-10-29T18:29:00Z'
+                    status: UNKNOWN
+                    reason: PHONE_LOST
+                    reasonDetails: Телефон утерян 29.10.2026; доступ восстановлен на новом устройстве
+                    incidentAt: '2026-10-29T18:20:00Z'
+                    initiator:
+                      type: CLIENT
+                      id: client-8f3a2c
+                      displayName: null
+                    createdAt: '2026-10-29T18:25:00Z'
+                    updatedAt: '2026-10-29T18:29:00Z'
+                    submittedAt: '2026-10-29T18:25:02Z'
+                    completedAt: null
+                    revokedAt: null
+                    ucRequestId: UC-REV-2026-000458
+                    attemptCount: 3
+                    nextRetryAt: '2026-10-29T18:31:00Z'
+                    error:
+                      code: UC_TIMEOUT
+                      message: УЦ не ответил за отведённое время; результат запроса неизвестен
+                      retryable: false
+                      occurredAt: '2026-10-29T18:29:00Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/RevocationNotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+components:
+  securitySchemes:
+    partnerOAuth:
+      type: oauth2
+      description: |
+        Машинная авторизация системы партнёра по OAuth 2.0 Client
+        Credentials. Партнёр определяется по `client_id` токена; передача
+        `partnerId` в запросах не предусмотрена. Используется для
+        серверных интеграций, а не для действий сотрудника.
+      flows:
+        clientCredentials:
+          tokenUrl: https://auth.podpis-online.example/oauth2/token
+          scopes:
+            'certificates:read': Чтение сертификатов клиентов партнёра
+            'certificate-revocations:read': Чтение операций отзыва
+            'certificate-revocations:write': Инициирование отзыва
+    partnerEmployeeOAuth:
+      type: oauth2
+      description: |
+        Авторизация сотрудника партнёра через корпоративный IdP партнёра по
+        Authorization Code. Токен содержит идентификатор сотрудника,
+        партнёра, роль и разрешение на отзыв сертификатов. Для чувствительных
+        операций требуется MFA. Конкретные claims и правила федерации
+        требуют согласования (OQ-11).
+      flows:
+        authorizationCode:
+          authorizationUrl: https://auth.podpis-online.example/oauth2/authorize
+          tokenUrl: https://auth.podpis-online.example/oauth2/token
+          scopes:
+            'certificates:read': Чтение сертификатов клиентов партнёра
+            'certificate-revocations:read': Чтение операций отзыва
+            'certificate-revocations:write': Инициирование отзыва
+    clientOAuth:
+      type: oauth2
+      description: |
+        Токен клиента выпускается приложением партнёра по Authorization Code
+        с PKCE после аутентификации клиента. `sub` токена должен совпадать с
+        `clientId` сертификата.
+
+        При потере телефона токен должен быть получен в сценарии повторной
+        идентификации, а не путём восстановления сессии на потерянном
+        устройстве. Максимальный возраст аутентификации и требования к
+        `acr`/`amr` определяются отдельно (OQ-01).
+      flows:
+        authorizationCode:
+          authorizationUrl: https://auth.podpis-online.example/oauth2/authorize
+          tokenUrl: https://auth.podpis-online.example/oauth2/token
+          scopes:
+            'certificates:read': Просмотр собственных сертификатов
+            'certificate-revocations:read': Просмотр собственных операций отзыва
+            'certificate-revocations:write': Инициирование отзыва собственного сертификата
+  parameters:
+    CertificateId:
+      name: certificateId
+      in: path
+      required: true
+      description: Идентификатор сертификата, присвоенный сервисом
+      schema:
+        type: string
+        format: uuid
+        minLength: 36
+        maxLength: 36
+        example: 7b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d
+    RevocationId:
+      name: revocationId
+      in: path
+      required: true
+      description: Идентификатор операции отзыва сертификата
+      schema:
+        type: string
+        format: uuid
+        minLength: 36
+        maxLength: 36
+        example: d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f70
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Ключ идемпотентности изменяющей операции. Уникален в пределах
+        инициатора. Повтор с тем же ключом и телом возвращает сохранённый
+        ответ, повтор с другим телом — `409 IDEMPOTENCY_KEY_REUSED`.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+        pattern: '^[A-Za-z0-9._:-]+$'
+        example: 3f6b1c2d-8e9a-4b7c-9d1e-2f3a4b5c6d7e
+    XRequestId:
+      name: X-Request-Id
+      in: header
+      required: false
+      description: |
+        Идентификатор запроса для сквозной трассировки. Если не передан,
+        сервис формирует значение самостоятельно и возвращает его в `traceId`
+        ответа об ошибке.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 64
+        example: req-20261029-001201
+    ClientIdFilter:
+      name: clientId
+      in: query
+      required: false
+      description: |
+        Идентификатор клиента. Для партнёрского токена обязателен. Для
+        клиентского токена может не передаваться; если передан, должен
+        совпадать с `sub` токена, иначе возвращается `403 ACCESS_DENIED`.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: '^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$'
+        example: client-8f3a2c
+    CertificateStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: Фильтр по статусу отзыва сертификата
+      schema:
+        $ref: '#/components/schemas/CertificateStatus'
+    CertificateValidityStatusFilter:
+      name: validityStatus
+      in: query
+      required: false
+      description: Фильтр по сроку действия сертификата
+      schema:
+        $ref: '#/components/schemas/CertificateValidityStatus'
+    SerialNumberFilter:
+      name: serialNumber
+      in: query
+      required: false
+      description: |
+        Серийный номер сертификата для точного поиска. Сравнение
+        регистронезависимое.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        example: 01A2B3C4D5E6F7089A
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        Курсор следующей страницы, полученный в предыдущем ответе.
+        Непрозрачная строка; при некорректном значении возвращается
+        `400 INVALID_CURSOR`.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+        example: eyJ2YWxpZEZyb20iOiIyMDI2LTAxLTE1VDAwOjAwOjAwWiJ9
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Максимальное число элементов страницы
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+        example: 20
+  headers:
+    Location:
+      description: |
+        Ссылка на созданную или существующую операцию отзыва. При создании
+        указывает на `/certificate-revocations/{revocationId}`; при конфликте
+        активной операции — на уже существующую операцию.
+      schema:
+        type: string
+        format: uri-reference
+        minLength: 1
+        maxLength: 2048
+        example: /v1/certificate-revocations/d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f70
+    IdempotentReplayed:
+      description: |
+        `true`, если ответ повторно возвращён по ранее обработанному
+        `Idempotency-Key`; тело ответа сохранено без изменений.
+      schema:
+        type: boolean
+        example: true
+    RetryAfter:
+      description: |
+        Рекомендуемая задержка перед следующим опросом состояния операции
+        или повтором запроса, в секундах.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 86400
+        example: 2
+  responses:
+    BadRequest:
+      description: |
+        Некорректный запрос: нарушен синтаксис, отсутствует обязательный
+        заголовок, не пройдена валидация полей или бизнес-проверка входных
+        данных. Повтор без изменения запроса не поможет.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            validation:
+              summary: Ошибка валидации полей
+              value:
+                type: https://api.podpis-online.example/problems/validation-error
+                title: Ошибка валидации запроса
+                status: 400
+                code: VALIDATION_ERROR
+                detail: Поле reasonDetails обязательно при reason=OTHER
+                traceId: req-20261029-001201
+                timestamp: '2026-10-29T18:25:00Z'
+                retryable: false
+                issues:
+                  - field: reasonDetails
+                    code: REQUIRED
+                    message: Укажите описание причины отзыва
+            missingIdempotencyKey:
+              summary: Отсутствует ключ идемпотентности
+              value:
+                type: https://api.podpis-online.example/problems/idempotency-key-required
+                title: Требуется ключ идемпотентности
+                status: 400
+                code: IDEMPOTENCY_KEY_REQUIRED
+                detail: Заголовок Idempotency-Key обязателен для этой операции
+                traceId: req-20261029-001202
+                timestamp: '2026-10-29T18:25:05Z'
+                retryable: false
+    Unauthorized:
+      description: |
+        Токен отсутствует, истёк или не прошёл проверку подписи. Требуется
+        получить новый токен; повтор с тем же токеном не поможет.
+      headers:
+        WWW-Authenticate:
+          description: Схема и параметры авторизации
+          schema:
+            type: string
+            example: Bearer realm="podpis-online", error="invalid_token"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://api.podpis-online.example/problems/unauthorized
+            title: Не пройдена аутентификация
+            status: 401
+            code: UNAUTHENTICATED
+            detail: Срок действия токена истёк
+            traceId: req-20261029-001203
+            timestamp: '2026-10-29T18:25:10Z'
+            retryable: false
+    Forbidden:
+      description: |
+        Аутентификация пройдена, но у инициатора нет прав на операцию:
+        недостаточный scope, отсутствует роль, клиент пытается действовать
+        от имени другого клиента или партнёр не имеет отношения к клиенту.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            missingScope:
+              summary: Недостаточный scope
+              value:
+                type: https://api.podpis-online.example/problems/access-denied
+                title: Операция запрещена
+                status: 403
+                code: ACCESS_DENIED
+                detail: У токена отсутствует scope certificate-revocations:write
+                traceId: req-20261029-001204
+                timestamp: '2026-10-29T18:25:15Z'
+                retryable: false
+            foreignClient:
+              summary: Клиент пытается использовать чужой clientId
+              value:
+                type: https://api.podpis-online.example/problems/access-denied
+                title: Операция запрещена
+                status: 403
+                code: ACCESS_DENIED
+                detail: clientId не совпадает с субъектом клиентского токена
+                traceId: req-20261029-001205
+                timestamp: '2026-10-29T18:25:20Z'
+                retryable: false
+    CertificateNotFound:
+      description: |
+        Сертификат не найден или недоступен инициатору. Сервис не раскрывает
+        существование сертификатов других клиентов и партнёров.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://api.podpis-online.example/problems/certificate-not-found
+            title: Сертификат не найден
+            status: 404
+            code: CERTIFICATE_NOT_FOUND
+            detail: Сертификат с указанным идентификатором не найден или недоступен инициатору
+            traceId: req-20261029-001206
+            timestamp: '2026-10-29T18:25:25Z'
+            retryable: false
+    RevocationNotFound:
+      description: |
+        Операция отзыва не найдена или недоступна инициатору. Сервис не
+        раскрывает существование операций других клиентов и партнёров.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://api.podpis-online.example/problems/revocation-not-found
+            title: Операция отзыва не найдена
+            status: 404
+            code: REVOCATION_NOT_FOUND
+            detail: Операция с указанным идентификатором не найдена или недоступна инициатору
+            traceId: req-20261029-001207
+            timestamp: '2026-10-29T18:25:30Z'
+            retryable: false
+    Conflict:
+      description: |
+        Конфликт состояния или повторной обработки: сертификат уже отозван,
+        есть активная операция, результат предыдущей операции неизвестен,
+        сертификат неактивен или нарушена идемпотентность.
+      headers:
+        Location:
+          description: |
+            Ссылка на существующую операцию отзыва, если конфликт вызван
+            активной операцией.
+          schema:
+            type: string
+            format: uri-reference
+            minLength: 1
+            maxLength: 2048
+            example: /v1/certificate-revocations/d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f70
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            revocationInProgress:
+              summary: По сертификату уже выполняется отзыв
+              value:
+                type: https://api.podpis-online.example/problems/revocation-in-progress
+                title: Отзыв уже выполняется
+                status: 409
+                code: REVOCATION_ALREADY_IN_PROGRESS
+                detail: Для сертификата уже существует незавершённая операция отзыва
+                traceId: req-20261029-001208
+                timestamp: '2026-10-29T18:25:35Z'
+                retryable: false
+            certificateAlreadyRevoked:
+              summary: Сертификат уже отозван
+              value:
+                type: https://api.podpis-online.example/problems/certificate-already-revoked
+                title: Сертификат уже отозван
+                status: 409
+                code: CERTIFICATE_ALREADY_REVOKED
+                detail: Сертификат уже отозван; повторный отзыв не требуется
+                traceId: req-20261029-001209
+                timestamp: '2026-10-29T18:25:40Z'
+                retryable: false
+            resultUnknown:
+              summary: Результат предыдущей операции неизвестен
+              value:
+                type: https://api.podpis-online.example/problems/revocation-result-unknown
+                title: Результат отзыва неизвестен
+                status: 409
+                code: REVOCATION_RESULT_UNKNOWN
+                detail: Результат предыдущей операции не установлен; дождитесь завершения сверки с УЦ
+                traceId: req-20261029-001210
+                timestamp: '2026-10-29T18:25:45Z'
+                retryable: false
+            certificateNotActive:
+              summary: Сертификат не допускает отзыв
+              value:
+                type: https://api.podpis-online.example/problems/certificate-not-active
+                title: Сертификат не допускает отзыв
+                status: 409
+                code: CERTIFICATE_NOT_ACTIVE
+                detail: Срок действия сертификата истёк или ещё не начался
+                traceId: req-20261029-001211
+                timestamp: '2026-10-29T18:25:50Z'
+                retryable: false
+            certificateStatusUnknown:
+              summary: Состояние сертификата не подтверждено
+              value:
+                type: https://api.podpis-online.example/problems/certificate-status-unknown
+                title: Состояние сертификата неизвестно
+                status: 409
+                code: CERTIFICATE_STATUS_UNKNOWN
+                detail: Актуальное состояние сертификата не подтверждено УЦ; повторите после сверки
+                traceId: req-20261029-001212
+                timestamp: '2026-10-29T18:25:55Z'
+                retryable: false
+            idempotencyKeyReused:
+              summary: Ключ идемпотентности использован с другим телом
+              value:
+                type: https://api.podpis-online.example/problems/idempotency-key-reused
+                title: Конфликт ключа идемпотентности
+                status: 409
+                code: IDEMPOTENCY_KEY_REUSED
+                detail: Ключ идемпотентности уже использован с другим телом запроса
+                traceId: req-20261029-001213
+                timestamp: '2026-10-29T18:26:00Z'
+                retryable: false
+            idempotencyInProgress:
+              summary: Запрос с этим ключом ещё обрабатывается
+              value:
+                type: https://api.podpis-online.example/problems/idempotency-key-in-progress
+                title: Запрос уже обрабатывается
+                status: 409
+                code: IDEMPOTENCY_KEY_IN_PROGRESS
+                detail: Запрос с этим ключом идемпотентности ещё обрабатывается
+                traceId: req-20261029-001214
+                timestamp: '2026-10-29T18:26:05Z'
+                retryable: true
+    UnsupportedMediaType:
+      description: Передан неподдерживаемый MIME-тип тела запроса
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://api.podpis-online.example/problems/unsupported-media-type
+            title: Неподдерживаемый тип содержимого
+            status: 415
+            code: UNSUPPORTED_MEDIA_TYPE
+            detail: Ожидается application/json
+            traceId: req-20261029-001215
+            timestamp: '2026-10-29T18:26:10Z'
+            retryable: false
+    TooManyRequests:
+      description: |
+        Превышен лимит частоты запросов. Повтор возможен после задержки,
+        указанной в `Retry-After`.
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://api.podpis-online.example/problems/rate-limit-exceeded
+            title: Превышен лимит запросов
+            status: 429
+            code: RATE_LIMIT_EXCEEDED
+            detail: Превышено допустимое число запросов в минуту
+            traceId: req-20261029-001216
+            timestamp: '2026-10-29T18:26:15Z'
+            retryable: true
+    InternalServerError:
+      description: Непредвиденная внутренняя ошибка сервиса
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://api.podpis-online.example/problems/internal-error
+            title: Внутренняя ошибка
+            status: 500
+            code: INTERNAL_ERROR
+            detail: Не удалось обработать запрос; повторите с тем же Idempotency-Key
+            traceId: req-20261029-001217
+            timestamp: '2026-10-29T18:26:20Z'
+            retryable: true
+    BadGateway:
+      description: Ошибка шлюза при обращении к внутреннему или внешнему компоненту
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://api.podpis-online.example/problems/bad-gateway
+            title: Ошибка шлюза
+            status: 502
+            code: BAD_GATEWAY
+            detail: Внутренний компонент вернул некорректный ответ
+            traceId: req-20261029-001218
+            timestamp: '2026-10-29T18:26:25Z'
+            retryable: true
+    ServiceUnavailable:
+      description: Сервис или зависимость временно недоступны
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://api.podpis-online.example/problems/service-unavailable
+            title: Сервис временно недоступен
+            status: 503
+            code: SERVICE_UNAVAILABLE
+            detail: Сервис временно недоступен; повторите позже
+            traceId: req-20261029-001219
+            timestamp: '2026-10-29T18:26:30Z'
+            retryable: true
+    GatewayTimeout:
+      description: Истекло время ожидания ответа от внутреннего или внешнего компонента
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://api.podpis-online.example/problems/gateway-timeout
+            title: Тайм-аут шлюза
+            status: 504
+            code: GATEWAY_TIMEOUT
+            detail: Компонент не ответил за отведённое время
+            traceId: req-20261029-001220
+            timestamp: '2026-10-29T18:26:35Z'
+            retryable: true
+  schemas:
+    CertificateStatus:
+      type: string
+      description: |
+        Статус отзыва сертификата. Не заменяет срок действия: для проверки
+        срока используйте `validityStatus` и даты `validFrom`/`validTo`.
+      enum:
+        - ACTIVE
+        - REVOCATION_PENDING
+        - REVOKED
+        - UNKNOWN
+      example: ACTIVE
+    CertificateValidityStatus:
+      type: string
+      description: |
+        Состояние срока действия сертификата на момент проверки.
+      enum:
+        - VALID
+        - NOT_YET_VALID
+        - EXPIRED
+      example: VALID
+    RevocationStatus:
+      type: string
+      description: |
+        Состояние операции отзыва. `REVOKED`, `REJECTED` и `FAILED` —
+        терминальные; `UNKNOWN` — промежуточное состояние неопределённого
+        результата.
+      enum:
+        - ACCEPTED
+        - SUBMITTED
+        - REVOKED
+        - REJECTED
+        - FAILED
+        - UNKNOWN
+      example: REVOKED
+    RevocationReason:
+      type: string
+      description: |
+        Бизнес-причина отзыва. Отображение на коды причин УЦ приведено в
+        `x-uc-integration.reasonMapping` и требует подтверждения (OQ-09).
+      enum:
+        - PHONE_LOST
+        - PHONE_STOLEN
+        - DEVICE_COMPROMISED
+        - CERTIFICATE_COMPROMISED
+        - OTHER
+      example: PHONE_LOST
+    RevocationInitiatorType:
+      type: string
+      description: |
+        Тип инициатора. Определяется сервисом по токену; в теле запроса не
+        передаётся.
+      enum:
+        - CLIENT
+        - PARTNER_EMPLOYEE
+        - PARTNER_SYSTEM
+      example: CLIENT
+    CertificateSummary:
+      type: object
+      description: |
+        Краткие сведения о сертификате в составе операции отзыва.
+      required:
+        - certificateId
+        - serialNumber
+        - subject
+        - issuer
+        - fingerprintSha256
+        - status
+        - validityStatus
+        - statusCheckedAt
+      properties:
+        certificateId:
+          type: string
+          format: uuid
+          minLength: 36
+          maxLength: 36
+          description: Идентификатор сертификата, присвоенный сервисом
+          example: 7b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d
+        serialNumber:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Серийный номер сертификата
+          example: 01A2B3C4D5E6F7089A
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Владелец сертификата в формате RFC 4514
+          example: CN=Иванов Иван Иванович, O=ООО «Клиент»
+        issuer:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Издатель сертификата в формате RFC 4514
+          example: CN=УЦ ПодписьОнлайн, O=АО «УЦ»
+        fingerprintSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+          minLength: 64
+          maxLength: 64
+          description: Отпечаток сертификата SHA-256 в нижнем шестнадцатеричном регистре
+          example: 3c9e1f2a4b5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7
+        status:
+          $ref: '#/components/schemas/CertificateStatus'
+        validityStatus:
+          $ref: '#/components/schemas/CertificateValidityStatus'
+        statusCheckedAt:
+          type: string
+          format: date-time
+          minLength: 20
+          maxLength: 35
+          description: Время последней подтверждённой проверки состояния сертификата
+          example: '2026-10-29T18:25:00Z'
+    Certificate:
+      type: object
+      description: |
+        Сертификат ключа проверки электронной подписи и его состояние.
+        Не содержит закрытого ключа и полных персональных данных.
+      required:
+        - certificateId
+        - clientId
+        - serialNumber
+        - subject
+        - issuer
+        - fingerprintSha256
+        - status
+        - validityStatus
+        - validFrom
+        - validTo
+        - statusCheckedAt
+      properties:
+        certificateId:
+          type: string
+          format: uuid
+          minLength: 36
+          maxLength: 36
+          description: Идентификатор сертификата, присвоенный сервисом
+          example: 7b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d
+        clientId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$'
+          description: Идентификатор клиента — владельца сертификата
+          example: client-8f3a2c
+        serialNumber:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Серийный номер сертификата
+          example: 01A2B3C4D5E6F7089A
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Владелец сертификата в формате RFC 4514
+          example: CN=Иванов Иван Иванович, O=ООО «Клиент»
+        issuer:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Издатель сертификата в формате RFC 4514
+          example: CN=УЦ ПодписьОнлайн, O=АО «УЦ»
+        fingerprintSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+          minLength: 64
+          maxLength: 64
+          description: Отпечаток сертификата SHA-256 в нижнем шестнадцатеричном регистре
+          example: 3c9e1f2a4b5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7
+        status:
+          $ref: '#/components/schemas/CertificateStatus'
+        validityStatus:
+          $ref: '#/components/schemas/CertificateValidityStatus'
+        validFrom:
+          type: string
+          format: date-time
+          minLength: 20
+          maxLength: 35
+          description: Начало срока действия сертификата
+          example: '2026-01-15T00:00:00Z'
+        validTo:
+          type: string
+          format: date-time
+          minLength: 20
+          maxLength: 35
+          description: Окончание срока действия сертификата
+          example: '2027-01-15T00:00:00Z'
+        issuedAt:
+          type: string
+          format: date-time
+          minLength: 20
+          maxLength: 35
+          nullable: true
+          description: Время выпуска сертификата; может отсутствовать в источнике данных
+          example: '2026-01-15T10:30:00Z'
+        revokedAt:
+          type: string
+          format: date-time
+          minLength: 20
+          maxLength: 35
+          nullable: true
+          description: Время подтверждённого отзыва; null, если сертификат не отозван
+          example: null
+        revocationReason:
+          allOf:
+            - $ref: '#/components/schemas/RevocationReason'
+          description: Причина отзыва; отсутствует, если сертификат не отозван
+        activeRevocationId:
+          type: string
+          format: uuid
+          minLength: 36
+          maxLength: 36
+          nullable: true
+          description: |
+            Идентификатор незавершённой операции отзыва; null, если активной
+            операции нет.
+          example: null
+        lastRevocationId:
+          type: string
+          format: uuid
+          minLength: 36
+          maxLength: 36
+          nullable: true
+          description: |
+            Идентификатор последней операции отзыва, если она известна и
+            сохраняется сервисом.
+          example: null
+        statusCheckedAt:
+          type: string
+          format: date-time
+          minLength: 20
+          maxLength: 35
+          description: Время последней подтверждённой проверки состояния сертификата
+          example: '2026-10-29T18:20:00Z'
+    CertificatePage:
+      type: object
+      description: Страница списка сертификатов
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          minItems: 0
+          maxItems: 100
+          description: Сертификаты текущей страницы
+          items:
+            $ref: '#/components/schemas/Certificate'
+        nextCursor:
+          type: string
+          minLength: 1
+          maxLength: 512
+          nullable: true
+          description: Курсор следующей страницы; null, если страниц больше нет
+          example: eyJ2YWxpZEZyb20iOiIyMDI2LTAxLTE1VDAwOjAwOjAwWiJ9
+    RevocationInitiator:
+      type: object
+      description: |
+        Инициатор операции отзыва. Значения определяются сервисом по токену;
+        инициатор не передаётся в теле запроса.
+      required:
+        - type
+        - id
+      properties:
+        type:
+          $ref: '#/components/schemas/RevocationInitiatorType'
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$'
+          description: |
+            Псевдонимный идентификатор инициатора: `sub` клиентского токена,
+            идентификатор сотрудника или `client_id` системы партнёра.
+          example: client-8f3a2c
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 255
+          nullable: true
+          description: |
+            Отображаемое имя инициатора в маскированном виде; может
+            отсутствовать для клиента и системного инициатора.
+          example: null
+    RevocationError:
+      type: object
+      description: |
+        Ошибка выполнения операции отзыва. Не является HTTP-ошибкой: операция
+        уже создана, а ошибка отражает результат её выполнения или сверки.
+      required:
+        - code
+        - message
+        - retryable
+        - occurredAt
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: |
+            Машиночитаемый код ошибки операции:
+
+            - `CERTIFICATE_NOT_ACTIVE` — сертификат не допускает отзыв по сроку действия;
+            - `CERTIFICATE_ALREADY_REVOKED` — сертификат уже отозван;
+            - `CERTIFICATE_STATUS_UNKNOWN` — состояние сертификата не подтверждено;
+            - `UC_CERTIFICATE_NOT_FOUND` — сертификат не найден в УЦ;
+            - `UC_REVOCATION_REFUSED` — УЦ отказал в отзыве;
+            - `UC_UNAVAILABLE` — УЦ недоступен;
+            - `UC_TIMEOUT` — УЦ не ответил за отведённое время;
+            - `UC_INVALID_RESPONSE` — УЦ вернул некорректный или неоднозначный ответ;
+            - `INTERNAL_ERROR` — внутренняя ошибка сервиса;
+            - `RECONCILIATION_FAILED` — не удалось установить результат сверкой.
+          enum:
+            - CERTIFICATE_NOT_ACTIVE
+            - CERTIFICATE_ALREADY_REVOKED
+            - CERTIFICATE_STATUS_UNKNOWN
+            - UC_CERTIFICATE_NOT_FOUND
+            - UC_REVOCATION_REFUSED
+            - UC_UNAVAILABLE
+            - UC_TIMEOUT
+            - UC_INVALID_RESPONSE
+            - INTERNAL_ERROR
+            - RECONCILIATION_FAILED
+          example: UC_TIMEOUT
+        message:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Описание ошибки для журнала и поддержки
+          example: УЦ не ответил за отведённое время; результат запроса неизвестен
+        retryable:
+          type: boolean
+          description: |
+            Допустим ли повтор операции после устранения причины. Для
+            состояния `UNKNOWN` значение всегда `false` до завершения сверки.
+          example: false
+        occurredAt:
+          type: string
+          format: date-time
+          minLength: 20
+          maxLength: 35
+          description: Время возникновения ошибки
+          example: '2026-10-29T18:29:00Z'
+    CertificateRevocation:
+      type: object
+      description: |
+        Операция отзыва сертификата. Содержит состояние операции, состояние
+        сертификата и сведения о взаимодействии с УЦ.
+      required:
+        - revocationId
+        - certificate
+        - status
+        - reason
+        - initiator
+        - createdAt
+        - updatedAt
+        - attemptCount
+      properties:
+        revocationId:
+          type: string
+          format: uuid
+          minLength: 36
+          maxLength: 36
+          description: Идентификатор операции отзыва
+          example: d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f70
+        certificate:
+          $ref: '#/components/schemas/CertificateSummary'
+        status:
+          $ref: '#/components/schemas/RevocationStatus'
+        reason:
+          $ref: '#/components/schemas/RevocationReason'
+        reasonDetails:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          nullable: true
+          description: Уточнение причины отзыва; обязательно при reason=OTHER
+          example: Телефон утерян 29.10.2026; доступ восстановлен на новом устройстве
+        incidentAt:
+          type: string
+          format: date-time
+          minLength: 20
+          maxLength: 35
+          nullable: true
+          description: Время инцидента, если оно известно инициатору
+          example: '2026-10-29T18:20:00Z'
+        initiator:
+          $ref: '#/components/schemas/RevocationInitiator'
+        createdAt:
+          type: string
+          format: date-time
+          minLength: 20
+          maxLength: 35
+          description: Время создания операции
+          example: '2026-10-29T18:25:00Z'
+        updatedAt:
+          type: string
+          format: date-time
+          minLength: 20
+          maxLength: 35
+          description: Время последнего изменения операции
+          example: '2026-10-29T18:31:00Z'
+        submittedAt:
+          type: string
+          format: date-time
+          minLength: 20
+          maxLength: 35
+          nullable: true
+          description: Время передачи запроса в УЦ; null, если запрос ещё не передан
+          example: '2026-10-29T18:25:02Z'
+        completedAt:
+          type: string
+          format: date-time
+          minLength: 20
+          maxLength: 35
+          nullable: true
+          description: Время завершения операции; null для незавершённых состояний
+          example: '2026-10-29T18:31:00Z'
+        revokedAt:
+          type: string
+          format: date-time
+          minLength: 20
+          maxLength: 35
+          nullable: true
+          description: Время подтверждённого отзыва; null, если отзыв не подтверждён
+          example: '2026-10-29T18:30:58Z'
+        ucRequestId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          nullable: true
+          description: |
+            Идентификатор запроса в УЦ. Возвращается, если запрос был передан
+            или УЦ вернул собственный идентификатор.
+          example: UC-REV-2026-000458
+        confirmationSource:
+          type: string
+          minLength: 1
+          maxLength: 32
+          nullable: true
+          description: |
+            Источник подтверждения результата: ответ API УЦ или сверка.
+            Заполняется для состояния `REVOKED`.
+          enum:
+            - UC_API
+            - RECONCILIATION
+          example: UC_API
+        attemptCount:
+          type: integer
+          minimum: 0
+          maximum: 4
+          description: |
+            Число попыток передачи запроса на отзыв в УЦ, включая
+            первоначальную. Не включает периодическую сверку и не является
+            числом HTTP-запросов инициатора.
+          example: 2
+        nextRetryAt:
+          type: string
+          format: date-time
+          minLength: 20
+          maxLength: 35
+          nullable: true
+          description: |
+            Время следующей попытки или сверки. Для терминальных состояний —
+            null.
+          example: null
+        error:
+          allOf:
+            - $ref: '#/components/schemas/RevocationError'
+          description: |
+            Ошибка выполнения операции; отсутствует для состояний `ACCEPTED`,
+            `SUBMITTED` и `REVOKED`.
+    CreateCertificateRevocationRequest:
+      type: object
+      description: Запрос на создание операции отзыва сертификата
+      required:
+        - certificateId
+        - reason
+      properties:
+        certificateId:
+          type: string
+          format: uuid
+          minLength: 36
+          maxLength: 36
+          description: |
+            Идентификатор сертификата, полученный через `GET /certificates`.
+            Сертификат должен принадлежать инициатору или его партнёру.
+          example: 7b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d
+        reason:
+          $ref: '#/components/schemas/RevocationReason'
+        reasonDetails:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          nullable: true
+          description: |
+            Уточнение причины. Обязательно при `reason=OTHER`. Не должно
+            содержать персональные данные и секреты.
+          example: Телефон утерян 29.10.2026; доступ восстановлен на новом устройстве
+        incidentAt:
+          type: string
+          format: date-time
+          minLength: 20
+          maxLength: 35
+          nullable: true
+          description: |
+            Время инцидента, если известно. Не должно быть в будущем; сервис
+            допускает расхождение часов до 5 минут.
+          example: '2026-10-29T18:20:00Z'
+        comment:
+          type: string
+          minLength: 1
+          maxLength: 500
+          nullable: true
+          description: |
+            Комментарий для журнала аудита. Не должен содержать персональные
+            данные, коды подтверждения и секреты.
+          example: Обращение клиента в поддержку партнёра
+    ValidationIssue:
+      type: object
+      description: Замечание валидации по конкретному полю
+      required:
+        - field
+        - code
+        - message
+      properties:
+        field:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Путь к полю запроса
+          example: reasonDetails
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Машиночитаемый код замечания
+          example: REQUIRED
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Описание замечания
+          example: Укажите описание причины отзыва
+    Problem:
+      type: object
+      description: |
+        Единая модель ошибки API. `retryable` показывает, допустим ли повтор
+        того же запроса без изменения данных.
+      required:
+        - type
+        - title
+        - status
+        - code
+        - traceId
+        - timestamp
+        - retryable
+      properties:
+        type:
+          type: string
+          format: uri
+          minLength: 1
+          maxLength: 2048
+          description: URI типа проблемы
+          example: https://api.podpis-online.example/problems/validation-error
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Краткое описание проблемы
+          example: Ошибка валидации запроса
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+          description: HTTP-код ответа
+          example: 400
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: |
+            Машиночитаемый код ошибки. Полный перечень и правила обработки —
+            в `x-error-catalog`.
+          enum:
+            - MALFORMED_REQUEST
+            - VALIDATION_ERROR
+            - UNAUTHENTICATED
+            - ACCESS_DENIED
+            - IDEMPOTENCY_KEY_REQUIRED
+            - IDEMPOTENCY_KEY_REUSED
+            - IDEMPOTENCY_KEY_IN_PROGRESS
+            - INVALID_CURSOR
+            - UNSUPPORTED_MEDIA_TYPE
+            - CERTIFICATE_NOT_FOUND
+            - REVOCATION_NOT_FOUND
+            - CERTIFICATE_ALREADY_REVOKED
+            - REVOCATION_ALREADY_IN_PROGRESS
+            - REVOCATION_RESULT_UNKNOWN
+            - CERTIFICATE_NOT_ACTIVE
+            - CERTIFICATE_STATUS_UNKNOWN
+            - RATE_LIMIT_EXCEEDED
+            - INTERNAL_ERROR
+            - BAD_GATEWAY
+            - SERVICE_UNAVAILABLE
+            - GATEWAY_TIMEOUT
+          example: VALIDATION_ERROR
+        detail:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Уточняющее описание причины ошибки
+          example: Поле reasonDetails обязательно при reason=OTHER
+        traceId:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Идентификатор запроса для обращения в поддержку
+          example: req-20261029-001201
+        timestamp:
+          type: string
+          format: date-time
+          minLength: 20
+          maxLength: 35
+          description: Время формирования ответа об ошибке
+          example: '2026-10-29T18:25:00Z'
+        retryable:
+          type: boolean
+          description: Допустим ли автоматический повтор того же запроса
+          example: false
+        issues:
+          type: array
+          maxItems: 50
+          description: Замечания валидации по полям запроса
+          items:
+            $ref: '#/components/schemas/ValidationIssue'
+x-error-catalog:
+  MALFORMED_REQUEST:
+    httpStatus: 400
+    retryable: false
+    description: Тело запроса не является корректным JSON или нарушен формат заголовка
+  VALIDATION_ERROR:
+    httpStatus: 400
+    retryable: false
+    description: Поля запроса не прошли проверку схемы или бизнес-валидацию
+  UNAUTHENTICATED:
+    httpStatus: 401
+    retryable: false
+    description: Токен отсутствует, истёк или не прошёл проверку подписи
+  ACCESS_DENIED:
+    httpStatus: 403
+    retryable: false
+    description: У инициатора нет прав на операцию или недостаточен scope
+  IDEMPOTENCY_KEY_REQUIRED:
+    httpStatus: 400
+    retryable: false
+    description: Отсутствует обязательный заголовок Idempotency-Key
+  IDEMPOTENCY_KEY_REUSED:
+    httpStatus: 409
+    retryable: false
+    description: Ключ идемпотентности уже использован с другим телом запроса
+  IDEMPOTENCY_KEY_IN_PROGRESS:
+    httpStatus: 409
+    retryable: true
+    description: Запрос с этим ключом ещё обрабатывается; допустим повтор после задержки
+  INVALID_CURSOR:
+    httpStatus: 400
+    retryable: false
+    description: Курсор пагинации некорректен или относится к другой выборке
+  UNSUPPORTED_MEDIA_TYPE:
+    httpStatus: 415
+    retryable: false
+    description: Передан неподдерживаемый MIME-тип тела запроса
+  CERTIFICATE_NOT_FOUND:
+    httpStatus: 404
+    retryable: false
+    description: Сертификат не найден или недоступен инициатору
+  REVOCATION_NOT_FOUND:
+    httpStatus: 404
+    retryable: false
+    description: Операция отзыва не найдена или недоступна инициатору
+  CERTIFICATE_ALREADY_REVOKED:
+    httpStatus: 409
+    retryable: false
+    description: Сертификат уже отозван; повторный отзыв не требуется
+  REVOCATION_ALREADY_IN_PROGRESS:
+    httpStatus: 409
+    retryable: false
+    description: Для сертификата уже существует незавершённая операция отзыва
+  REVOCATION_RESULT_UNKNOWN:
+    httpStatus: 409
+    retryable: false
+    description: Результат предыдущей операции не установлен; требуется сверка с УЦ
+  CERTIFICATE_NOT_ACTIVE:
+    httpStatus: 409
+    retryable: false
+    description: Срок действия сертификата истёк или ещё не начался
+  CERTIFICATE_STATUS_UNKNOWN:
+    httpStatus: 409
+    retryable: false
+    description: Актуальное состояние сертификата не подтверждено УЦ
+  RATE_LIMIT_EXCEEDED:
+    httpStatus: 429
+    retryable: true
+    description: Превышен лимит частоты запросов; повтор с учётом Retry-After
+  INTERNAL_ERROR:
+    httpStatus: 500
+    retryable: true
+    description: Непредвиденная внутренняя ошибка сервиса
+  BAD_GATEWAY:
+    httpStatus: 502
+    retryable: true
+    description: Внутренний или внешний компонент вернул некорректный ответ
+  SERVICE_UNAVAILABLE:
+    httpStatus: 503
+    retryable: true
+    description: Сервис или зависимость временно недоступны
+  GATEWAY_TIMEOUT:
+    httpStatus: 504
+    retryable: true
+    description: Истекло время ожидания ответа от внутреннего или внешнего компонента
+x-idempotency:
+  header: Idempotency-Key
+  requiredFor:
+    - createCertificateRevocation
+  ttlHours: 24
+  scope: |
+    Ключ уникален в пределах инициатора и операции. Отпечаток запроса
+    включает метод, путь, параметры и тело.
+  replayHeader: Idempotent-Replayed
+  behavior: |
+    Повтор с тем же ключом и тем же отпечатком возвращает сохранённый ответ
+    с заголовком Idempotent-Replayed: true. Сохранённый ответ отражает
+    состояние на момент первого запроса; актуальное состояние операции
+    нужно получать через GET. Повтор с другим отпечатком —
+    409 IDEMPOTENCY_KEY_REUSED. Параллельный запрос с тем же ключом —
+    409 IDEMPOTENCY_KEY_IN_PROGRESS (допустим повтор после задержки).
+  businessUniqueness: |
+    Независимо от ключа для сертификата допускается не более одной
+    незавершённой операции отзыва. Повторный POST с новым ключом при
+    активной операции возвращает 409 REVOCATION_ALREADY_IN_PROGRESS и
+    Location существующей операции. При результате UNKNOWN возвращается
+    409 REVOCATION_RESULT_UNKNOWN; новая операция блокируется до завершения
+    сверки с УЦ.
+  conflictCodes:
+    - IDEMPOTENCY_KEY_REQUIRED
+    - IDEMPOTENCY_KEY_REUSED
+    - IDEMPOTENCY_KEY_IN_PROGRESS
+    - REVOCATION_ALREADY_IN_PROGRESS
+    - REVOCATION_RESULT_UNKNOWN
+x-state-machine:
+  certificateRevocation:
+    initial: ACCEPTED
+    terminal:
+      - REVOKED
+      - REJECTED
+      - FAILED
+    states:
+      ACCEPTED: Запрос принят, проверки пройдены, операция в очереди
+      SUBMITTED: Запрос передан в УЦ, подтверждение не получено
+      REVOKED: УЦ подтвердил отзыв
+      REJECTED: Отзыв отклонён по бизнес-причине
+      FAILED: Операция не выполнена, внешний эффект подтверждённо отсутствует
+      UNKNOWN: Результат не установлен, выполняется сверка
+    transitions:
+      - from: ACCEPTED
+        to: SUBMITTED
+        trigger: Запрос передан в УЦ
+      - from: ACCEPTED
+        to: REJECTED
+        trigger: Проверка после создания операции выявила бизнес-основание для отказа
+      - from: ACCEPTED
+        to: FAILED
+        trigger: Техническая ошибка до передачи запроса в УЦ
+      - from: SUBMITTED
+        to: REVOKED
+        trigger: УЦ подтвердил отзыв
+      - from: SUBMITTED
+        to: REJECTED
+        trigger: УЦ отказал в отзыве или сертификат не найден в УЦ
+      - from: SUBMITTED
+        to: UNKNOWN
+        trigger: Тайм-аут, недоступность УЦ или неоднозначный ответ
+      - from: UNKNOWN
+        to: REVOKED
+        trigger: Сверка подтвердила отзыв
+      - from: UNKNOWN
+        to: REJECTED
+        trigger: Сверка подтвердила отказ или отсутствие сертификата в УЦ
+      - from: UNKNOWN
+        to: FAILED
+        trigger: Сверка подтвердила, что запрос не был выполнен
+  certificate:
+    initial: ACTIVE
+    terminal:
+      - REVOKED
+    states:
+      ACTIVE: Сертификат не отозван; срок действия проверяется отдельно
+      REVOCATION_PENDING: Есть незавершённая операция отзыва
+      REVOKED: УЦ подтвердил отзыв
+      UNKNOWN: Состояние не подтверждено УЦ
+    transitions:
+      - from: ACTIVE
+        to: UNKNOWN
+        trigger: Не удалось подтвердить состояние сертификата при периодической проверке
+      - from: ACTIVE
+        to: REVOCATION_PENDING
+        trigger: Создана операция отзыва
+      - from: REVOCATION_PENDING
+        to: REVOKED
+        trigger: Операция завершилась состоянием REVOKED
+      - from: REVOCATION_PENDING
+        to: ACTIVE
+        trigger: Операция завершилась REJECTED или FAILED, УЦ подтвердил действие сертификата
+      - from: REVOCATION_PENDING
+        to: UNKNOWN
+        trigger: Состояние сертификата не удалось подтвердить
+      - from: UNKNOWN
+        to: ACTIVE
+        trigger: Сверка подтвердила, что сертификат действует и активной операции нет
+      - from: UNKNOWN
+        to: REVOKED
+        trigger: Сверка подтвердила отзыв
+      - from: UNKNOWN
+        to: REVOCATION_PENDING
+        trigger: Сверка подтвердила наличие активной операции
+    invariants:
+      - Статус REVOCATION_PENDING означает наличие activeRevocationId.
+      - Статус REVOKED устанавливается только после подтверждения УЦ.
+      - Срок действия отражается отдельно в validityStatus и не меняет статус отзыва.
+x-authorization:
+  initiatorTypes:
+    CLIENT:
+      token: clientOAuth
+      checks:
+        - subject токена совпадает с clientId сертификата
+        - токен выпущен после повторной идентификации при недоступности потерянного устройства
+        - scope certificate-revocations:write для создания операции
+    PARTNER_EMPLOYEE:
+      token: partnerEmployeeOAuth
+      checks:
+        - сертификат принадлежит клиенту партнёра, определяемого по client_id токена
+        - токен содержит роль и разрешение на отзыв сертификатов
+        - при необходимости выполняется дополнительное подтверждение сотрудника
+    PARTNER_SYSTEM:
+      token: partnerOAuth
+      checks:
+        - сертификат принадлежит клиенту партнёра, определяемого по client_id токена
+        - токен содержит scope certificate-revocations:write
+        - вызов выполняется в рамках разрешённого сценария партнёра
+  commonChecks:
+    - Токен не истёк, подпись, iss, aud и scope корректны
+    - Инициатор имеет право на операцию с конкретным сертификатом
+    - Знание certificateId или revocationId не предоставляет прав
+    - Чужой сертификат или операция неотличимы от отсутствующих и дают 404
+    - Перед созданием операции повторно проверяются статус и срок действия сертификата
+  stepUp:
+    requiredFor:
+      - createCertificateRevocation
+    maxAuthenticationAgeSeconds: 900
+    requirement: |
+      Для клиентского токена требуется аутентификация после начала инцидента,
+      а не сессия, восстановленная на потерянном устройстве. Конкретные
+      значения acr/amr, допустимый возраст аутентификации и перечень
+      допустимых каналов повторной идентификации определяются OQ-01.
+  notFoundPolicy: |
+    Сервис не раскрывает существование чужих сертификатов и операций.
+    При недостаточном scope или роли возвращается 403, при отсутствии
+    отношения инициатора к объекту — 404. Чужой объект неотличим от
+    отсутствующего.
+x-uc-integration:
+  status: preliminary
+  note: |
+    Описан логический контракт взаимодействия с УЦ. Конкретные методы, коды
+    ответов, формат идентификаторов и способ подтверждения определяются
+    договором с УЦ (OQ-02). Спецификация не предполагает единого API УЦ для
+    всех функций.
+  operations:
+    submitRevocation:
+      purpose: Передать в УЦ запрос на отзыв конкретного сертификата
+      identifiers:
+        - serialNumber
+        - issuer
+        - fingerprintSha256
+      requestIdempotency: |
+        Сервис передаёт собственный ucRequestId и не повторяет запрос без
+        проверки результата предыдущей попытки, если УЦ не гарантирует
+        идемпотентность.
+    getRevocationStatus:
+      purpose: Получить подтверждённое состояние сертификата после отзыва
+      usage: |
+        Используется для устранения неопределённого результата и для
+        периодической сверки. Ответ УЦ имеет приоритет над локальным
+        состоянием операции.
+  timeoutSeconds: 10
+  retryPolicy:
+    maxAttempts: 4
+    maxAttemptsNote: Четыре попытки передачи запроса, включая первоначальную; три повтора после неё.
+    backoffSeconds:
+      - 1
+      - 2
+      - 4
+    retryOn:
+      - timeout
+      - 429
+      - 500
+      - 502
+      - 503
+      - 504
+    doNotRetryOn:
+      - 400
+      - 401
+      - 403
+      - 404
+      - 409
+      - 422
+    respectRetryAfter: true
+  reconciliation:
+    intervalSeconds: 60
+    maxWindowHours: 24
+    afterWindow: manual_review
+    note: |
+      До истечения окна сервис автоматически сверяет состояние. После
+      исчерпания окна операция остаётся в UNKNOWN и передаётся на ручной
+      разбор; конкретный регламент — OQ-10.
+  reasonMapping:
+    status: preliminary
+    note: |
+      Сопоставление бизнес-причин с кодами причин УЦ (RFC 5280) требует
+      подтверждения (OQ-09). УЦ может использовать собственный справочник.
+    mapping:
+      PHONE_LOST: keyCompromise
+      PHONE_STOLEN: keyCompromise
+      DEVICE_COMPROMISED: keyCompromise
+      CERTIFICATE_COMPROMISED: keyCompromise
+      OTHER: unspecified
+  resultMapping:
+    UC_REVOKED: REVOKED
+    UC_ALREADY_REVOKED: REVOKED
+    UC_REFUSED: REJECTED
+    UC_CERTIFICATE_NOT_FOUND: REJECTED
+    UC_TIMEOUT: UNKNOWN
+    UC_UNAVAILABLE: UNKNOWN
+    UC_INVALID_RESPONSE: UNKNOWN
+  unknownResultPolicy: |
+    Если запрос мог быть получен УЦ, но подтверждение не получено, операция
+    переходит в UNKNOWN. Повторная отправка запроса на отзыв блокируется до
+    завершения сверки. Если сверка подтвердила, что запрос не выполнялся,
+    операция переходит в FAILED и новая операция допускается.
+x-rate-limits:
+  revocationCreate:
+    requestsPerMinute: 10
+    scope: Инициатор (subject клиентского токена или client_id партнёра)
+  certificateRead:
+    requestsPerMinute: 120
+    scope: Инициатор
+  revocationRead:
+    requestsPerMinute: 240
+    scope: Инициатор
+  note: |
+    Значения предварительные и требуют подтверждения по нагрузке и
+    требованиям безопасности. При превышении возвращается 429 с Retry-After.
+x-open-questions:
+  - id: OQ-01
+    question: |
+      Какой механизм повторной идентификации клиента применяется при потере
+      телефона: вход в приложение партнёра на новом устройстве, обращение в
+      поддержку, ЕСИА или комбинация? Какие значения acr/amr и какой
+      максимальный возраст аутентификации считать достаточными для
+      юридически значимого отзыва?
+    impact: |
+      Влияет на clientOAuth, требования к step-up, состав initiator,
+      доказательную базу и возможность инициировать отзыв без доступа к
+      потерянному устройству.
+    status: OPEN
+    owner: Владелец продукта, архитектор безопасности
+  - id: OQ-02
+    question: |
+      Каков фактический контракт УЦ: синхронный ответ, асинхронный статус,
+      callback, идемпотентность, коды причин и ошибок, сроки подтверждения?
+      Поддерживает ли УЦ поиск сертификата по отпечатку и серийному номеру?
+    impact: |
+      Влияет на x-uc-integration, тайм-ауты, retryPolicy, состояния
+      SUBMITTED/UNKNOWN/REJECTED и требования к сверке.
+    status: OPEN
+    owner: Владелец интеграции с УЦ
+  - id: OQ-03
+    question: |
+      Допускается ли отзыв сертификата с истёкшим или ещё не вступившим в
+      силу сроком действия? Требуется ли отзыв для сертификатов, срок
+      действия которых уже завершён?
+    impact: |
+      Влияет на проверку CERTIFICATE_NOT_ACTIVE и поведение POST. В текущей
+      версии такие сертификаты не допускаются к отзыву.
+    status: OPEN
+    owner: Владелец продукта, юридическая служба, УЦ
+  - id: OQ-04
+    question: |
+      Как должно API сообщать об уже отозванном сертификате: 409 с отдельным
+      кодом, 200 с результатом существующей операции или 303 на ресурс
+      операции? Текущая версия возвращает 409 CERTIFICATE_ALREADY_REVOKED.
+    impact: |
+      Влияет на клиентскую обработку, UX и совместимость с партнёрскими
+      интеграциями.
+    status: OPEN
+    owner: Владелец продукта, архитектор
+  - id: OQ-05
+    question: |
+      Нужен ли массовый отзыв нескольких сертификатов клиента (например,
+      при компрометации всех устройств) одной операцией? Текущая версия
+      поддерживает только один сертификат на операцию.
+    impact: |
+      Влияет на модель операции, идемпотентность, частичный успех и
+      контракт POST.
+    status: OPEN
+    owner: Владелец продукта
+  - id: OQ-06
+    question: |
+      Каковы сроки хранения операций отзыва, журналов аудита и персональных
+      данных инициатора? Требуется ли удаление или обезличивание по
+      истечении срока?
+    impact: |
+      Влияет на retention, состав CertificateRevocation, lastRevocationId и
+      требования к аудиту.
+    status: OPEN
+    owner: Юридическая служба, служба эксплуатации
+  - id: OQ-07
+    question: |
+      Нужны ли асинхронные уведомления партнёра о результате отзыва
+      (webhook, SMS, push), или достаточно опроса статуса? Текущая версия
+      поддерживает только опрос.
+    impact: |
+      Влияет на необходимость webhook-контракта, события и инфраструктуру
+      доставки.
+    status: OPEN
+    owner: Владелец продукта, владельцы интеграций
+  - id: OQ-08
+    question: |
+      Должен ли сотрудник поддержки иметь отдельный канал и полномочия для
+      инициирования отзыва? Как подтверждается его право действовать от
+      имени клиента и как это фиксируется в аудите?
+    impact: |
+      Влияет на состав RevocationInitiatorType, securitySchemes и
+      требования к аудиту. В текущей версии поддержка не выделена как
+      отдельный тип инициатора.
+    status: OPEN
+    owner: Владелец продукта, служба поддержки, архитектор безопасности
+  - id: OQ-09
+    question: |
+      Какие коды причин отзыва требует УЦ и как бизнес-причины PHONE_LOST,
+      PHONE_STOLEN, DEVICE_COMPROMISED, CERTIFICATE_COMPROMISED и OTHER
+      отображаются на них? Достаточно ли кода keyCompromise для потери
+      телефона или допустим cessationOfOperation, если компрометация
+      приватного ключа не подтверждена?
+    impact: |
+      Влияет на reasonMapping, юридическую значимость причины и данные,
+      передаваемые в УЦ.
+    status: OPEN
+    owner: Владелец интеграции с УЦ, юридическая служба
+  - id: OQ-10
+    question: |
+      Каков предельный срок пребывания операции в UNKNOWN и регламент
+      ручного разбора после исчерпания окна автоматической сверки? Кто
+      принимает решение и как результат фиксируется?
+    impact: |
+      Влияет на reconciliation.maxWindowHours, nextRetryAt, статус UNKNOWN
+      и нагрузку на поддержку.
+    status: OPEN
+    owner: Служба эксплуатации, служба поддержки, архитектор
+  - id: OQ-11
+    question: |
+      Какой корпоративный IdP партнёра используется и какие claims
+      подтверждают сотрудника, партнёра, роль и право на отзыв? Требуется ли
+      MFA для всех отзывов или только для отдельных категорий?
+    impact: |
+      Влияет на partnerEmployeeOAuth, проверку полномочий, аудит и
+      возможность разграничить действия сотрудника и системы партнёра.
+    status: OPEN
+    owner: Архитектор безопасности, владелец интеграции с партнёром
+x-assumptions:
+  - id: A-01
+    statement: |
+      Одна операция отзыва относится к одному сертификату; массовый отзыв
+      в первой версии не поддерживается.
+    rationale: Упрощает модель состояния, идемпотентность и обработку частичного успеха.
+    affected: CreateCertificateRevocationRequest, CertificateRevocation
+  - id: A-02
+    statement: |
+      Клиентский токен для отзыва выпускается после повторной идентификации;
+      максимальный возраст аутентификации — 15 минут. Конкретные acr/amr и
+      каналы идентификации требуют согласования.
+    rationale: Потеря телефона исключает использование сессии на потерянном устройстве.
+    affected: clientOAuth, x-authorization.stepUp
+  - id: A-03
+    statement: |
+      Для сертификата допускается не более одной незавершённой операции
+      отзыва; уникальность обеспечивается сервисом, а не только
+      Idempotency-Key.
+    rationale: Соответствует бизнес-правилу 3.2 о повторных запросах, относящихся к одному намерению.
+    affected: createCertificateRevocation, x-idempotency.businessUniqueness
+  - id: A-04
+    statement: |
+      Взаимодействие с УЦ асинхронное: POST создаёт операцию, а результат
+      подтверждается отдельно. Ошибки УЦ не возвращаются в POST.
+    rationale: Принятие запроса не равно фактическому отзыву (бизнес-правило 3.3).
+    affected: createCertificateRevocation, RevocationStatus
+  - id: A-05
+    statement: |
+      FAILED означает подтверждённое отсутствие внешнего эффекта. Тайм-аут
+      или недоступность УЦ переводят операцию в UNKNOWN, а не в FAILED.
+    rationale: Соответствует правилу 4.4 о неопределённом результате.
+    affected: RevocationStatus, RevocationError, x-uc-integration
+  - id: A-06
+    statement: |
+      Срок хранения ключа идемпотентности — 24 часа; ключ уникален в
+      пределах инициатора и операции.
+    rationale: Согласуется с уже принятым решением для API подписания пакета.
+    affected: Idempotency-Key, x-idempotency
+  - id: A-07
+    statement: |
+      Статус сертификата отражает последнее подтверждённое состояние УЦ и
+      может быть устаревшим; время проверки фиксируется в statusCheckedAt.
+    rationale: Локальная база не является источником истины об отзыве.
+    affected: Certificate.status, Certificate.statusCheckedAt
+  - id: A-08
+    statement: |
+      Рекомендуемая стратегия опроса: первый запрос через 1 секунду, далее
+      экспоненциально до 30 секунд, с учётом Retry-After.
+    rationale: Снижает нагрузку при длительном подтверждении УЦ.
+    affected: getCertificateRevocation, Retry-After
+  - id: A-09
+    statement: |
+      Чужие сертификаты и операции возвращаются как 404, а не 403, чтобы не
+      раскрывать их существование.
+    rationale: Снижает риск утечки сведений о клиентах и сертификатах.
+    affected: getCertificate, getCertificateRevocation, x-authorization
+  - id: A-10
+    statement: |
+      В первой версии уведомления о результате отзыва не предусмотрены;
+      используется опрос статуса.
+    rationale: Сокращает объём контракта; необходимость уведомлений — OQ-07.
+    affected: x-open-questions, CertificateRevocation
+  - id: A-11
+    statement: |
+      reasonDetails обязателен при reason=OTHER; comment не должен содержать
+      персональные данные, коды подтверждения и секреты.
+    rationale: Обеспечивает достаточность основания и снижает риск утечки.
+    affected: CreateCertificateRevocationRequest
+  - id: A-12
+    statement: |
+      Сотрудник партнёра аутентифицируется через корпоративный IdP партнёра
+      по Authorization Code; токен содержит идентификатор сотрудника и
+      партнёра. Действия сотрудника отделяются от действий системы партнёра.
+    rationale: Позволяет проверить полномочия конкретного сотрудника и сохранить аудит.
+    affected: partnerEmployeeOAuth, RevocationInitiator
+x-changelog:
+  - version: '1.0.0'
+    date: '2026-10-29'
+    changes:
+      - Первая версия спецификации по задаче SCRUM-2142
+      - Определены операции поиска сертификата, чтения карточки, создания операции отзыва и получения её состояния
+      - Определены схемы авторизации клиента, системы партнёра и сотрудника партнёра
+      - Описаны состояния ACCEPTED, SUBMITTED, REVOKED, REJECTED, FAILED и UNKNOWN, а также отдельный статус срока действия сертификата
+      - Зафиксированы идемпотентность, бизнес-уникальность операции, правила повторной отправки и обработка неопределённого результата
+      - Описаны ошибки валидации, отсутствия сертификата, недоступности УЦ, тайм-аута и повторного запроса
+      - Открытые вопросы и допущения вынесены в x-open-questions и x-assumptions
