@@ -368,15 +368,15 @@ paths:
                 clientId: client-8f3a2c
                 title: Кредитный пакет № 458
                 status: PENDING_CONFIRMATION
-                statusReason: 0
+                statusReason: null
                 signatureType: UKEP
                 version: 3
                 createdAt: '2026-10-29T12:00:00Z'
                 updatedAt: '2026-10-29T12:01:10Z'
                 submittedAt: '2026-10-29T12:01:10Z'
                 expiresAt: '2026-11-05T18:00:00Z'
-                completedAt: 0
-                activeSessionId: 0
+                completedAt: null
+                activeSessionId: null
                 notificationsEnabled: true
                 summary:
                   documentsTotal: 2
