@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: ПодписьОнлайн — API подписания пакета документов
-  version: '1.0.0'
+  version: '1.1.0'
   description: |
     API сервиса «ПодписьОнлайн» для подписания пакета документов усиленной
     квалифицированной электронной подписью (УКЭП) с подтверждением клиента.
@@ -1628,6 +1628,7 @@ components:
       properties:
         partnerDocumentId:
           type: string
+          minLength: 1
           maxLength: 64
           description: |
             Идентификатор документа в системе партнёра. Уникален в пределах
@@ -1635,6 +1636,7 @@ components:
           example: DOC-458-01
         fileName:
           type: string
+          minLength: 1
           maxLength: 255
           description: Имя файла для отображения клиенту; сервер не использует его как путь
           example: Кредитный договор № 458.pdf
@@ -1675,6 +1677,7 @@ components:
           example: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
         partnerDocumentId:
           type: string
+          minLength: 1
           maxLength: 64
           nullable: true
           description: Идентификатор документа в системе партнёра
@@ -1687,6 +1690,7 @@ components:
           example: 1
         fileName:
           type: string
+          minLength: 1
           maxLength: 255
           description: Имя файла для отображения
           example: Кредитный договор № 458.pdf
@@ -1869,16 +1873,19 @@ components:
           example: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
         externalRequestId:
           type: string
+          minLength: 1
           maxLength: 64
           description: Внешний идентификатор запроса партнёра
           example: BNK-2026-000458
         clientId:
           type: string
+          minLength: 1
           maxLength: 128
           description: Идентификатор клиента в системе партнёра
           example: client-8f3a2c
         title:
           type: string
+          minLength: 1
           maxLength: 255
           nullable: true
           description: Отображаемое название пакета
@@ -1887,6 +1894,7 @@ components:
           $ref: '#/components/schemas/PackageStatus'
         statusReason:
           type: string
+          minLength: 1
           maxLength: 500
           nullable: true
           description: Пояснение причины текущего состояния (отказ, отмена, ошибка)
@@ -1978,16 +1986,19 @@ components:
           example: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
         externalRequestId:
           type: string
+          minLength: 1
           maxLength: 64
           description: Внешний идентификатор запроса партнёра
           example: BNK-2026-000458
         clientId:
           type: string
+          minLength: 1
           maxLength: 128
           description: Идентификатор клиента в системе партнёра
           example: client-8f3a2c
         title:
           type: string
+          minLength: 1
           maxLength: 255
           nullable: true
           description: Отображаемое название пакета
@@ -2047,6 +2058,7 @@ components:
             $ref: '#/components/schemas/SigningPackageSummary'
         nextCursor:
           type: string
+          minLength: 1
           maxLength: 512
           nullable: true
           description: Курсор следующей страницы; null, если страниц больше нет
@@ -2079,6 +2091,7 @@ components:
           example: client-8f3a2c
         title:
           type: string
+          minLength: 1
           maxLength: 255
           description: Отображаемое название пакета
           example: Кредитный пакет № 458
@@ -2094,6 +2107,7 @@ components:
         callbackUrl:
           type: string
           format: uri
+          minLength: 1
           maxLength: 2048
           pattern: '^https://'
           description: |
@@ -2126,6 +2140,7 @@ components:
       properties:
         comment:
           type: string
+          minLength: 1
           maxLength: 500
           description: Комментарий партнёра для журнала операций
           example: Пакет сформирован для клиента branch MSK-12
@@ -2257,6 +2272,7 @@ components:
       properties:
         challengeId:
           type: string
+          minLength: 1
           maxLength: 64
           description: Идентификатор вызова подтверждения для последующего `confirm`
           example: ch-9f8e7d6c5b4a
@@ -2264,6 +2280,7 @@ components:
           $ref: '#/components/schemas/ConfirmationMethod'
         recipientMasked:
           type: string
+          minLength: 1
           maxLength: 64
           description: Маскированный получатель кода или устройства
           example: '+7 *** ***-12-34'
@@ -2288,6 +2305,7 @@ components:
           $ref: '#/components/schemas/ConfirmationMethod'
         deviceId:
           type: string
+          minLength: 1
           maxLength: 128
           description: |
             Идентификатор устройства клиента для адресации push-подтверждения.
@@ -2302,6 +2320,7 @@ components:
       properties:
         challengeId:
           type: string
+          minLength: 1
           maxLength: 64
           description: Идентификатор вызова подтверждения, полученный при создании сессии
           example: ch-9f8e7d6c5b4a
@@ -2488,11 +2507,13 @@ components:
           example: VALIDATION_ERROR
         detail:
           type: string
+          minLength: 1
           maxLength: 2000
           description: Уточняющее описание причины ошибки
           example: Поле documents[1].sha256 не соответствует формату SHA-256
         traceId:
           type: string
+          minLength: 1
           maxLength: 64
           description: Идентификатор запроса для обращения в поддержку
           example: req-20261029-000458
@@ -2912,3 +2933,14 @@ x-assumptions:
       в SIGNING; сервис выполняет сверку с криптографическим компонентом.
     rationale: Соответствует правилу 4.4 базы знаний о неопределённом результате.
     affected: PackageStatus, DocumentStatus, SigningResult.resultUnknown
+x-changelog:
+  - version: '1.1.0'
+    date: '2026-10-29'
+    changes:
+      - Добавлены события signing-package.partially-signed и signing-package.failed в модель PackageEvent
+      - Описаны допустимое окно timestamp, число попыток, срок и правила повторной доставки callback-уведомлений
+      - Для строковых полей схем добавлены ограничения минимальной длины наряду с максимальной
+  - version: '1.0.0'
+    date: '2026-10-29'
+    changes:
+      - Первая версия спецификации по задаче SCRUM-2140
