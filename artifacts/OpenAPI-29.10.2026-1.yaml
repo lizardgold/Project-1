@@ -2349,6 +2349,8 @@ components:
             - signing-package.submitted
             - signing-package.signing-started
             - signing-package.completed
+            - signing-package.partially-signed
+            - signing-package.failed
             - signing-package.rejected
             - signing-package.cancelled
             - signing-package.expired
@@ -2701,14 +2703,30 @@ x-webhooks:
     - signing-package.submitted
     - signing-package.signing-started
     - signing-package.completed
+    - signing-package.partially-signed
+    - signing-package.failed
     - signing-package.rejected
     - signing-package.cancelled
     - signing-package.expired
+  timestampToleranceSeconds: 300
   delivery: |
     Доставка выполняется методом POST с телом PackageEvent и заголовками
     X-Webhook-Event-Id и X-Webhook-Timestamp. Получатель обязан отвечать 2xx
-    в течение 5 секунд. При ошибке выполняются повторные попытки с
-    возрастающей задержкой; доставка не гарантирует порядок событий.
+    в течение 5 секунд. Подпись и timestamp проверяются получателем до
+    обработки события; событие с timestamp старше 5 минут отклоняется.
+    Доставка не гарантирует порядок событий.
+  retryPolicy:
+    maxAttempts: 8
+    windowHours: 24
+    backoff: 1 мин, 5 мин, 15 мин, 30 мин, 1 ч, 3 ч
+    onClientError: |
+      Ответы 4xx, кроме 408 и 429, считаются окончательной ошибкой: повторная
+      доставка прекращается, событие фиксируется как недоставленное, партнёр
+      получает состояние опросом.
+    onServerError: |
+      Ответы 5xx, 408 и 429 считаются временной ошибкой и повторяются в
+      пределах окна доставки; после исчерпания попыток событие фиксируется
+      как недоставленное.
   signature: |
     X-Webhook-Signature: t=<X-Webhook-Timestamp>,v1=<HMAC-SHA256 от
     "<timestamp>.<сырое тело>" с секретом партнёра>. Получатель проверяет
