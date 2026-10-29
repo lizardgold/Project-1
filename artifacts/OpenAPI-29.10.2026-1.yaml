@@ -3,163 +3,123 @@ info:
   title: ПодписьОнлайн — API подписания пакета документов
   version: '1.0.0'
   description: |
-    REST API сервиса «ПодписьОнлайн» для сценария подписания пакета документов
-    усиленной квалифицированной электронной подписью (УКЭП).
+    API сервиса «ПодписьОнлайн» для подписания пакета документов усиленной
+    квалифицированной электронной подписью (УКЭП) с подтверждением клиента.
 
-    Источник требований: Jira SCRUM-2140 (дочерняя задача SCRUM-2139).
-    Спецификация описывает взаимодействие с системами партнёров и внутренними
-    компонентами сервиса в границах сценария подписания пакета документов.
+    Источник требований — Jira SCRUM-2140 (эпик SCRUM-2139).
 
-    ## Границы сценария
+    ## Назначение и границы
 
-    Сервис «ПодписьОнлайн»:
+    Сервис принимает от системы партнёра пакет документов и метаданные клиента,
+    хранит исходные документы, предъявляет их клиенту в приложении партнёра,
+    принимает подтверждение клиента, организует криптографическую операцию
+    подписания через удостоверяющий центр (УЦ) или согласованный
+    криптографический компонент и возвращает партнёру результат по каждому
+    документу.
 
-    * принимает от системы партнёра пакет документов и метаданные клиента;
-    * обеспечивает хранение исходных документов и предъявление их клиенту;
-    * инициирует и принимает подтверждение клиента;
-    * организует криптографическую операцию подписания через согласованный
-      криптографический компонент или удостоверяющий центр (УЦ);
-    * фиксирует результат по каждому документу и по пакету в целом;
-    * предоставляет партнёру результат и подписанные документы.
-
-    Сервис не выпускает сертификат в рамках этого сценария, не выполняет
-    аутентификацию клиента в приложении партнёра и не подменяет УЦ. Клиентский
-    интерфейс предоставляет приложение банка или страховой организации.
+    В границы этого API не входят: выпуск сертификата клиента, аутентификация
+    клиента в приложении партнёра, отзыв сертификата, проверка подписи как
+    отдельная операция и хранение документов сверх срока, согласованного
+    отдельными требованиями.
 
     ## Участники
 
     | Участник | Роль в сценарии |
     |---|---|
-    | Система партнёра (backend) | Создаёт пакет, загружает документы, отправляет пакет на подписание, получает статусы и результат |
-    | Приложение партнёра | Аутентифицирует клиента, отображает документы, инициирует и подтверждает подписание |
+    | Система партнёра | Создаёт пакет, загружает документы, отправляет пакет на подписание, получает статусы и результат |
+    | Приложение партнёра | Аутентифицирует клиента, показывает документы, инициирует и подтверждает подписание |
     | Клиент | Физическое лицо или индивидуальный предприниматель, подписывающий пакет |
     | «ПодписьОнлайн» | Оркестрирует сценарий, хранит документы, управляет состояниями и результатом |
-    | УЦ / криптографический компонент | Выполняет криптографическую операцию подписания и предоставляет сведения о сертификате |
+    | УЦ / криптографический компонент | Выполняет криптографическую операцию и предоставляет сведения о сертификате |
 
     ## Основной сценарий
 
-    1. Система партнёра создаёт пакет (`POST /signing-packages`) и получает
-       `packageId`. Состав пакета фиксируется в момент создания.
-    2. Система партнёра загружает содержимое каждого документа
+    1. Партнёр создаёт пакет с полным составом документов
+       (`POST /signing-packages`) и получает `packageId` и `documentId` для
+       каждого документа.
+    2. Партнёр загружает содержимое документов
        (`PUT /signing-packages/{packageId}/documents/{documentId}/content`).
-    3. Система партнёра отправляет пакет на подписание
-       (`POST /signing-packages/{packageId}/submit`). Пакет переходит в
-       `PENDING_CONFIRMATION`, состав становится неизменяемым.
+    3. Партнёр фиксирует состав и отправляет пакет на подписание
+       (`POST /signing-packages/{packageId}/submit`); пакет переходит в
+       `PENDING_CONFIRMATION`.
     4. Клиент в приложении партнёра открывает пакет
        (`GET /signing-packages/{packageId}`) и инициирует подписание
        (`POST /signing-packages/{packageId}/signing-sessions`).
-    5. Сервис формирует одноразовый вызов подтверждения и возвращает его
-       параметры (маскированный получатель, срок действия, число попыток).
+    5. Сервис возвращает параметры подтверждения: маскированный получатель,
+       срок действия сессии и число оставшихся попыток.
     6. Клиент подтверждает намерение (`POST /signing-sessions/{sessionId}/confirm`).
-       Пакет переходит в `SIGNING`; подписание выполняется асинхронно.
-    7. Клиент или партнёр отслеживает состояние пакета
-       (`GET /signing-packages/{packageId}` или `GET /signing-packages/{packageId}/result`).
-       Партнёр может получать уведомления через callback.
-    8. По завершении результат доступен по каждому документу; подписанные
-       документы можно скачать (`GET .../content?variant=SIGNED`).
+       Пакет переходит в `SIGNING`, подписание выполняется асинхронно.
+    7. Партнёр отслеживает состояние пакета (`GET /signing-packages/{packageId}`,
+       `GET /signing-packages/{packageId}/result`) или получает
+       callback-уведомления, если указал `callbackUrl`.
+    8. После завершения партнёр получает результат по каждому документу и может
+       скачать подписанный файл (`GET .../content?variant=SIGNED`).
 
     Клиент может отказаться от подписания до начала криптографической операции
-    (`POST /signing-sessions/{sessionId}/reject`), партнёр может отменить пакет
+    (`POST /signing-sessions/{sessionId}/reject`). Партнёр может отменить пакет
     до подтверждения клиентом (`POST /signing-packages/{packageId}/cancel`).
 
-    ## Модель состояний пакета
+    ## Состояния
 
-    | Состояние | Значение | Допустимые переходы |
-    |---|---|---|
-    | `DRAFT` | Пакет создан; содержимое документов можно загружать и заменять; состав не изменяется | `PENDING_CONFIRMATION`, `CANCELLED` |
-    | `PENDING_CONFIRMATION` | Состав зафиксирован, ожидается подтверждение клиента | `SIGNING`, `REJECTED`, `EXPIRED`, `CANCELLED` |
-    | `SIGNING` | Клиент подтвердил, выполняется подписание; результат может быть ещё неизвестен | `SIGNED`, `PARTIALLY_SIGNED`, `FAILED` |
-    | `SIGNED` | Все документы подписаны | — |
-    | `PARTIALLY_SIGNED` | Часть документов подписана, часть завершилась ошибкой | — |
-    | `REJECTED` | Клиент отказался от подписания | — |
-    | `CANCELLED` | Пакет отменён партнёром до подтверждения | — |
-    | `EXPIRED` | Истёк срок ожидания подтверждения | — |
-    | `FAILED` | Ни один документ не подписан, обработка завершилась ошибкой | — |
+    Пакет: `DRAFT` → `PENDING_CONFIRMATION` → `SIGNING` → `SIGNED` |
+    `PARTIALLY_SIGNED` | `FAILED`; из `DRAFT` и `PENDING_CONFIRMATION` возможны
+    `CANCELLED`, из `PENDING_CONFIRMATION` — `REJECTED` и `EXPIRED`.
 
-    Состояния `SIGNED`, `PARTIALLY_SIGNED`, `REJECTED`, `CANCELLED`, `EXPIRED`
-    и `FAILED` являются терминальными.
+    Документ: `PENDING_UPLOAD` → `UPLOADED` → `READY` → `SIGNING` → `SIGNED` |
+    `FAILED`.
 
-    ## Идентификация и авторизация
+    Сессия подтверждения: `PENDING` → `CONFIRMED` | `REJECTED` | `EXPIRED` |
+    `FAILED`.
 
-    * Система партнёра аутентифицируется по OAuth 2.0 Client Credentials.
-      Партнёр определяется по `client_id` токена; передача `partnerId` в теле
-      запроса не предусмотрена и не должна приниматься как основание доступа.
-    * Клиентский токен выпускается для приложения партнёра после аутентификации
-      клиента по Authorization Code с PKCE. `sub` токена должен соответствовать
-      `clientId`, указанному партнёром при создании пакета; сервис проверяет
-      подпись, `iss`, `aud`, срок действия и scopes.
+    Агрегированный статус пакета не заменяет статусы документов: при частичном
+    успехе пакет получает `PARTIALLY_SIGNED`, а результаты документов сохраняются
+    независимо.
+
+    ## Авторизация
+
+    * Система партнёра — OAuth 2.0 Client Credentials; партнёр определяется по
+      `client_id` токена, передача `partnerId` в запросе не предусмотрена.
+    * Клиент — токен приложения партнёра, выпущенный по Authorization Code с
+      PKCE; `sub` токена должен совпадать с `clientId` пакета.
     * Доступ к пакету проверяется по принадлежности партнёру и по связи
-      `clientId` с аутентифицированным субъектом. Знание `packageId` не даёт прав
-      на операцию.
-    * Код подтверждения, содержимое документов и персональные данные не должны
-      попадать в журналы; код подтверждения не возвращается в ответах API.
-    * Для межсистемного канала рекомендуется mTLS; конкретный механизм
-      согласуется с партнёром.
+      `clientId` с субъектом токена. Знание идентификатора не даёт прав.
+    * Код подтверждения, содержимое документов и персональные данные не
+      попадают в журналы; код подтверждения не возвращается в ответах.
 
-    ## Идемпотентность и защита от повторной обработки
+    ## Идемпотентность и повторная обработка
 
-    Все изменяющие состояние POST-операции требуют заголовок `Idempotency-Key`.
-    Сервер хранит ключ и отпечаток запроса 24 часа. Повтор с тем же
-    ключом и тем же телом возвращает сохранённый ответ с заголовком
-    `Idempotent-Replayed: true`; повтор с тем же ключом и другим телом возвращает
-    `409 IDEMPOTENCY_KEY_REUSED`; параллельный запрос с тем же ключом —
-    `409 IDEMPOTENCY_KEY_IN_PROGRESS`.
+    Все изменяющие состояние POST-запросы требуют `Idempotency-Key`. Сервер
+    хранит ключ и отпечаток запроса 24 часа: повтор с тем же ключом и тем же
+    телом возвращает сохранённый ответ с `Idempotent-Replayed: true`, повтор с
+    другим телом — `409 IDEMPOTENCY_KEY_REUSED`, параллельный запрос с тем же
+    ключом — `409 IDEMPOTENCY_KEY_IN_PROGRESS`. Для `submit` и `cancel`
+    дополнительно используется `If-Match` с `ETag` пакета.
 
-    Для `submit` и `cancel` дополнительно используется `If-Match` с `ETag`
-    пакета, что защищает от изменения состава и состояния по устаревшим данным.
-    `externalRequestId` уникален в пределах партнёра и позволяет распознать
-    повторное создание пакета.
-
-    Повторное подтверждение подписания не должно приводить к повторной
-    криптографической операции: при уже подтверждённой сессии возвращается
-    текущее состояние, а не запускается новое подписание.
+    Повторное подтверждение уже подтверждённой сессии не запускает повторную
+    криптографическую операцию, а возвращает текущее состояние.
 
     ## Ошибки и повторные попытки
 
-    Ошибки возвращаются в единой модели `Problem`: машиночитаемый `code`,
-    сообщение, `traceId`, время, признак `retryable` и детали валидации.
-    Бизнес-ошибки (недопустимый переход, отсутствие сертификата, истёкший срок)
-    отличаются от технических ошибок (недоступность УЦ, тайм-аут).
+    Все ошибки возвращаются в модели `Problem`: машиночитаемый `code`,
+    `traceId`, время, признак `retryable` и, для ошибок валидации, список
+    `issues`. Бизнес-ошибки (недопустимый переход, отсутствие сертификата,
+    истёкший срок) отличаются от технических (недоступность УЦ, тайм-аут).
 
-    Повторять автоматически допускается только запросы, помеченные
-    `retryable: true`, с учётом `Retry-After`. При тайм-ауте подтверждения или
-    ошибке криптографического компонента результат считается неизвестным:
-    необходимо запросить состояние пакета, а не повторять подтверждение вслепую.
+    Автоматически повторять допускается только ответы с `retryable: true`, с
+    учётом `Retry-After`. При тайм-ауте подтверждения или ошибке
+    криптографического компонента результат считается неизвестным: необходимо
+    запросить состояние пакета, а не повторять подтверждение вслепую.
 
     ## Ограничения (предварительные)
 
-    * Формат документов на первом этапе: PDF (`application/pdf`).
-    * Количество документов в пакете: от 1 до 20.
-    * Размер одного документа: до 25 МиБ (26 214 400 байт).
-    * Суммарный размер пакета: до 100 МиБ (104 857 600 байт).
-    * Срок ожидания подтверждения клиентом: по умолчанию 7 календарных дней,
-      но не более 30 дней с момента отправки пакета.
-    * Срок жизни сессии подтверждения: 15 минут.
-    * Количество попыток ввода кода подтверждения: 3.
+    * Формат документов на первом этапе — PDF (`application/pdf`).
+    * В пакете от 1 до 20 документов.
+    * Размер документа — до 25 МиБ (26 214 400 байт), пакета — до 100 МиБ.
+    * Ожидание подтверждения — 7 дней по умолчанию, не более 30 дней.
+    * Сессия подтверждения — 15 минут, попыток ввода кода — 3.
 
-    Перечисленные значения являются рабочими допущениями и требуют
-    подтверждения (см. `x-open-questions`).
-
-    ## Открытые вопросы
-
-    Неопределённые контракты, бизнес-правила и технические зависимости
-    зафиксированы в `x-open-questions`. Принятые рабочие допущения — в
-    `x-assumptions`. До согласования этих вопросов соответствующие элементы
-    спецификации не должны трактоваться как подтверждённые требования.
-
-    Краткий перечень (полные формулировки и влияние — в `x-open-questions`):
-
-    * OQ-01 — механизм подтверждения намерения клиента;
-    * OQ-02 — формат УКЭП и место криптографической операции;
-    * OQ-03 — допустимость частичного подписания;
-    * OQ-04 — повторная обработка документов с ошибкой;
-    * OQ-05 — сроки подтверждения, сессии и хранения;
-    * OQ-06 — лимиты документов и размеров;
-    * OQ-07 — выпуск клиентского токена и claims;
-    * OQ-08 — обязательность callback-уведомлений;
-    * OQ-09 — предельный срок устранения неизвестного результата;
-    * OQ-10 — журналирование и юридическая значимость;
-    * OQ-11 — отдельная операция проверки подписи.
+    Значения являются рабочими допущениями и требуют подтверждения
+    (см. `x-open-questions` и `x-assumptions`).
   contact:
     name: Команда системного анализа «ПодписьОнлайн»
   license:
@@ -168,78 +128,73 @@ externalDocs:
   description: Исходная задача Jira SCRUM-2140
   url: https://javacode.atlassian.net/browse/SCRUM-2140
 servers:
-  - url: https://sandbox.api.podpisonline.example/v1
-    description: Тестовый контур (фактический домен уточняется при регистрации интеграции)
-  - url: https://api.podpisonline.example/v1
-    description: Продуктивный контур (фактический домен уточняется при регистрации интеграции)
+  - url: https://sandbox.podpis-online.example/api/v1
+    description: Тестовый контур; домен уточняется при регистрации интеграции
+  - url: https://api.podpis-online.example/api/v1
+    description: Продуктивный контур; домен уточняется при регистрации интеграции
 tags:
   - name: Пакеты документов
     description: Создание, просмотр, отправка на подписание и отмена пакета
   - name: Документы
     description: Загрузка и получение содержимого документов пакета
   - name: Подписание клиентом
-    description: Инициирование, подтверждение и отклонение подписания клиентом
+    description: Инициирование, подтверждение и отклонение подписания
   - name: Результаты
-    description: Получение статуса и результата обработки пакета
+    description: Получение состояния и результата обработки пакета
+security:
+  - partnerOAuth:
+      - signing-packages:write
 paths:
   /signing-packages:
-    parameters:
-      - $ref: '#/components/parameters/XRequestId'
     post:
       tags:
         - Пакеты документов
       summary: Создать пакет документов
-      operationId: createSigningPackage
       description: |
-        Создаёт пакет в состоянии `DRAFT` и фиксирует перечень документов.
-        Содержимое документов загружается отдельными запросами; состав пакета
-        определяется массивом `documents` и не может быть расширен после
-        создания — для изменения состава пакет отменяется и создаётся заново.
+        Создаёт пакет в состоянии `DRAFT` с полным составом документов.
+        Состав фиксируется в момент создания: добавление и удаление документов
+        после создания не поддерживается — для изменения состава пакет
+        отменяется и создаётся заново.
 
-        `externalRequestId` уникален в пределах партнёра и используется для
-        распознавания повторного создания. Запрос требует `Idempotency-Key`.
-        Повторное создание с тем же `externalRequestId`, но другим ключом
-        идемпотентности возвращает `409 DUPLICATE_EXTERNAL_REQUEST_ID`; для
-        получения ранее созданного пакета используется
-        `GET /signing-packages?externalRequestId=...`.
+        Сервис присваивает `packageId` и `documentId` каждому документу.
+        Содержимое документов загружается отдельными запросами, после чего
+        пакет отправляется на подписание через `submit`.
 
-        При создании можно указать `callbackUrl` — тогда партнёр будет получать
-        уведомления об изменении состояния пакета. Если `callbackUrl` не указан,
-        партнёр использует опрос `GET /signing-packages/{packageId}`.
+        Повторный запрос с тем же `Idempotency-Key` и тем же телом возвращает
+        ранее созданный пакет и заголовок `Idempotent-Replayed: true`.
+        Повтор с другим телом завершается `409 IDEMPOTENCY_KEY_REUSED`.
+        Повторное использование `externalRequestId` в пределах партнёра
+        завершается `409 DUPLICATE_EXTERNAL_REQUEST_ID`.
+      operationId: createSigningPackage
       security:
         - partnerOAuth:
             - signing-packages:write
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/XRequestId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateSigningPackageRequest'
-            examples:
-              creditPackage:
-                summary: Пакет из двух документов
-                value:
-                  externalRequestId: BNK-2026-000458
-                  clientId: client-8f3a2c
-                  title: Кредитный пакет № 458
-                  documents:
-                    - partnerDocumentId: DOC-458-01
-                      fileName: Кредитный договор № 458.pdf
-                      mimeType: application/pdf
-                      sizeBytes: 245760
-                      sha256: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
-                    - partnerDocumentId: DOC-458-02
-                      fileName: График платежей.pdf
-                      mimeType: application/pdf
-                      sizeBytes: 98304
-                      sha256: b4d1e8f2a6c30597e1f4a7b0c3d6e9f21528374a6b9c0d3e6f9a2b5c8d1e4f70
-                  callbackUrl: https://partner.example.com/hooks/podpis-online
-                  expiresAt: '2026-11-05T18:00:00Z'
-                  partnerMetadata:
-                    branchId: MSK-12
-                    productCode: CREDIT-2026
+            example:
+              externalRequestId: BNK-2026-000458
+              clientId: client-8f3a2c
+              title: Кредитный пакет № 458
+              callbackUrl: https://partner.example.com/hooks/podpis-online
+              expiresAt: '2026-11-05T18:00:00Z'
+              documents:
+                - partnerDocumentId: DOC-458-01
+                  fileName: Кредитный договор № 458.pdf
+                  mimeType: application/pdf
+                  sizeBytes: 245760
+                  sha256: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
+                - partnerDocumentId: DOC-458-02
+                  fileName: График платежей.pdf
+                  mimeType: application/pdf
+                  sizeBytes: 81920
+                  sha256: 1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809
       responses:
         '201':
           description: Пакет создан
@@ -254,52 +209,39 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SigningPackage'
-              examples:
-                draftPackage:
-                  summary: Созданный пакет в состоянии DRAFT
-                  value:
-                    packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
-                    partnerId: partner-bank-01
-                    externalRequestId: BNK-2026-000458
-                    clientId: client-8f3a2c
-                    title: Кредитный пакет № 458
-                    status: DRAFT
-                    signatureType: UKEP
-                    documents:
-                      - documentId: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
-                        partnerDocumentId: DOC-458-01
-                        sequence: 1
-                        fileName: Кредитный договор № 458.pdf
-                        mimeType: application/pdf
-                        sizeBytes: 245760
-                        sha256: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
-                        status: PENDING
-                        uploadedAt: null
-                        signedAt: null
-                      - documentId: b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e
-                        partnerDocumentId: DOC-458-02
-                        sequence: 2
-                        fileName: График платежей.pdf
-                        mimeType: application/pdf
-                        sizeBytes: 98304
-                        sha256: b4d1e8f2a6c30597e1f4a7b0c3d6e9f21528374a6b9c0d3e6f9a2b5c8d1e4f70
-                        status: PENDING
-                        uploadedAt: null
-                        signedAt: null
-                    summary:
-                      documentsTotal: 2
-                      documentsSigned: 0
-                      documentsFailed: 0
-                      documentsPending: 2
-                      totalSizeBytes: 344064
-                    createdAt: '2026-10-29T12:00:00Z'
-                    updatedAt: '2026-10-29T12:00:00Z'
-                    submittedAt: null
-                    expiresAt: '2026-11-05T18:00:00Z'
-                    completedAt: null
-                    version: 1
-                    activeSessionId: null
-                    notificationsEnabled: true
+              example:
+                packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
+                externalRequestId: BNK-2026-000458
+                clientId: client-8f3a2c
+                title: Кредитный пакет № 458
+                status: DRAFT
+                signatureType: UKEP
+                version: 1
+                createdAt: '2026-10-29T12:00:00Z'
+                updatedAt: '2026-10-29T12:00:00Z'
+                expiresAt: '2026-11-05T18:00:00Z'
+                notificationsEnabled: true
+                summary:
+                  documentsTotal: 2
+                  documentsSigned: 0
+                  documentsFailed: 0
+                documents:
+                  - documentId: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
+                    partnerDocumentId: DOC-458-01
+                    sequence: 1
+                    fileName: Кредитный договор № 458.pdf
+                    mimeType: application/pdf
+                    sizeBytes: 245760
+                    sha256: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
+                    status: PENDING_UPLOAD
+                  - documentId: b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e
+                    partnerDocumentId: DOC-458-02
+                    sequence: 2
+                    fileName: График платежей.pdf
+                    mimeType: application/pdf
+                    sizeBytes: 81920
+                    sha256: 1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809
+                    status: PENDING_UPLOAD
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -308,8 +250,6 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
-        '413':
-          $ref: '#/components/responses/PayloadTooLarge'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '429':
@@ -318,172 +258,59 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-      callbacks:
-        packageStatusChanged:
-          '{$request.body#/callbackUrl}':
-            post:
-              tags:
-                - Пакеты документов
-              summary: Уведомление партнёра об изменении статуса пакета
-              operationId: onPackageStatusChanged
-              description: |
-                Callback вызывается сервисом «ПодписьОнлайн» при переходе пакета
-                в значимое состояние: `PENDING_CONFIRMATION`, `SIGNING`,
-                `SIGNED`, `PARTIALLY_SIGNED`, `FAILED`, `REJECTED`, `EXPIRED`,
-                `CANCELLED`.
-
-                Уведомление не является заменой опроса: партнёр должен уметь
-                восстановить состояние через `GET /signing-packages/{packageId}`.
-                Повторная доставка возможна; партнёр обязан распознавать события
-                по `X-Webhook-Event-Id` и обрабатывать их идемпотентно.
-
-                Подпись уведомления: HMAC-SHA256 от строки
-                `<X-Webhook-Timestamp>.<сырое тело>` с секретом партнёра,
-                результат в `X-Webhook-Signature` в формате `t=<timestamp>,v1=<hex>`.
-                Партнёр должен проверить подпись и отклонить уведомление с
-                неверной подписью. Ответ партнёра — 2XX в течение 5 секунд.
-                При 4XX/5XX или тайм-ауте выполняются повторные попытки:
-                1 мин, 5 мин, 15 мин, 30 мин, 1 ч, 3 ч.
-              parameters:
-                - $ref: '#/components/parameters/WebhookEventId'
-                - $ref: '#/components/parameters/WebhookTimestamp'
-                - $ref: '#/components/parameters/WebhookSignature'
-              requestBody:
-                required: true
-                content:
-                  application/json:
-                    schema:
-                      $ref: '#/components/schemas/PackageEvent'
-                    examples:
-                      packageSigned:
-                        summary: Все документы подписаны
-                        value:
-                          eventId: f6a7b8c9-d0e1-4f2a-9b3c-4d5e6f708192
-                          eventType: package.signed
-                          occurredAt: '2026-10-29T12:07:30Z'
-                          packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
-                          packageStatus: SIGNED
-                          externalRequestId: BNK-2026-000458
-                          signatureType: UKEP
-                          resultAvailable: true
-                          documents:
-                            - documentId: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
-                              partnerDocumentId: DOC-458-01
-                              status: SIGNED
-                              errorCode: null
-                            - documentId: b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e
-                              partnerDocumentId: DOC-458-02
-                              status: SIGNED
-                              errorCode: null
-                          summary:
-                            documentsTotal: 2
-                            documentsSigned: 2
-                            documentsFailed: 0
-                            documentsPending: 0
-                            totalSizeBytes: 344064
-              responses:
-                '2XX':
-                  description: Уведомление принято партнёром
-                '4XX':
-                  description: Уведомление отклонено; сервис выполнит повторную доставку
-                '5XX':
-                  description: Ошибка на стороне партнёра; сервис выполнит повторную доставку
     get:
       tags:
         - Пакеты документов
       summary: Получить список пакетов
-      operationId: listSigningPackages
       description: |
-        Возвращает пакеты текущего партнёра с курсорной пагинацией. Доступны
-        фильтры по состоянию, внешнему идентификатору запроса, клиенту и дате
-        создания. Список не содержит содержимого документов и предназначен для
-        мониторинга и сверки.
+        Возвращает пакеты, доступные системе партнёра, с постраничной
+        пагинацией по курсору. Список не содержит содержимого документов.
+        Сортировка — по `createdAt` по убыванию.
+      operationId: listSigningPackages
       security:
         - partnerOAuth:
             - signing-packages:read
       parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
         - name: status
           in: query
           required: false
-          description: Фильтр по одному или нескольким состояниям пакета
-          style: form
-          explode: true
+          description: |
+            Фильтр по статусу пакета. Если параметр не указан, возвращаются
+            пакеты во всех статусах.
           schema:
-            type: array
-            items:
-              $ref: '#/components/schemas/PackageStatus'
-          example:
-            - PENDING_CONFIRMATION
-            - SIGNING
+            $ref: '#/components/schemas/PackageStatus'
         - name: externalRequestId
           in: query
           required: false
-          description: Внешний идентификатор запроса партнёра
+          description: Фильтр по внешнему идентификатору запроса партнёра
           schema:
             type: string
             maxLength: 64
-        - name: clientId
-          in: query
-          required: false
-          description: Идентификатор клиента в системе партнёра
-          schema:
-            type: string
-            maxLength: 128
-        - name: createdFrom
-          in: query
-          required: false
-          description: Нижняя граница даты создания (включительно)
-          schema:
-            type: string
-            format: date-time
-        - name: createdTo
-          in: query
-          required: false
-          description: Верхняя граница даты создания (включительно)
-          schema:
-            type: string
-            format: date-time
-        - name: limit
-          in: query
-          required: false
-          description: Размер страницы
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 20
-        - name: cursor
-          in: query
-          required: false
-          description: Курсор следующей страницы из предыдущего ответа
-          schema:
-            type: string
-            maxLength: 512
+            example: BNK-2026-000458
+        - $ref: '#/components/parameters/XRequestId'
       responses:
         '200':
-          description: Страница пакетов
+          description: Страница списка пакетов
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SigningPackagePage'
-              examples:
-                page:
-                  summary: Одна страница со смешанными состояниями
-                  value:
-                    items:
-                      - packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
-                        externalRequestId: BNK-2026-000458
-                        clientId: client-8f3a2c
-                        title: Кредитный пакет № 458
-                        status: SIGNED
-                        createdAt: '2026-10-29T12:00:00Z'
-                        updatedAt: '2026-10-29T12:07:30Z'
-                        submittedAt: '2026-10-29T12:01:10Z'
-                        completedAt: '2026-10-29T12:07:30Z'
-                        documentsTotal: 2
-                        documentsSigned: 2
-                        documentsFailed: 0
-                    nextCursor: eyJjcmVhdGVkQXQiOiIyMDI2LTEwLTI5VDEyOjAwOjAwWiIsImlkIjoiNWYwYzJkN2UifQ
+              example:
+                items:
+                  - packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
+                    externalRequestId: BNK-2026-000458
+                    clientId: client-8f3a2c
+                    title: Кредитный пакет № 458
+                    status: SIGNED
+                    createdAt: '2026-10-29T12:00:00Z'
+                    updatedAt: '2026-10-29T12:07:30Z'
+                    completedAt: '2026-10-29T12:07:30Z'
+                    documentsTotal: 2
+                    documentsSigned: 2
+                    documentsFailed: 0
+                nextCursor: null
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -494,8 +321,6 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalServerError'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
   /signing-packages/{packageId}:
     parameters:
       - $ref: '#/components/parameters/PackageId'
@@ -504,86 +329,80 @@ paths:
       tags:
         - Пакеты документов
       summary: Получить пакет документов
-      operationId: getSigningPackage
       description: |
-        Возвращает текущее состояние пакета, состав документов, агрегированный
-        статус и идентификатор активной сессии подтверждения.
+        Возвращает пакет, состав документов и агрегированные счётчики.
+        Ответ содержит `ETag`, который используется в `If-Match` при `submit`
+        и `cancel`.
 
-        Доступ разрешён партнёру-владельцу пакета и клиенту, которому пакет
-        адресован. Клиент получает доступ к пакету только после его отправки
-        партнёром (`PENDING_CONFIRMATION` и далее); в состоянии `DRAFT` доступ
-        клиента не предоставляется. Клиент не получает `partnerId`,
-        `partnerMetadata` и `externalRequestId`; сервис фильтрует эти поля при
-        выдаче клиентского представления.
-
-        Заголовок `ETag` содержит версию пакета; её необходимо передавать в
-        `If-Match` при `submit` и `cancel`.
+        Если пакет принадлежит другому партнёру, возвращается `404`, а не `403`,
+        чтобы не раскрывать существование пакета.
+      operationId: getSigningPackage
       security:
         - partnerOAuth:
             - signing-packages:read
         - clientOAuth:
-            - signing:read
+            - signing-packages:read
+      parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          description: |
+            Значение `ETag` из предыдущего ответа. Если ресурс не изменился,
+            возвращается `304 Not Modified` без тела.
+          schema:
+            type: string
+            example: '"7"'
       responses:
         '200':
-          description: Пакет найден
+          description: Пакет документов
           headers:
             ETag:
               $ref: '#/components/headers/ETag'
-            Cache-Control:
-              description: Содержимое пакета не должно кэшироваться промежуточными узлами
-              schema:
-                type: string
-                example: no-store
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SigningPackage'
-              examples:
-                pendingConfirmation:
-                  summary: Пакет ожидает подтверждения клиента
-                  value:
-                    packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
-                    partnerId: partner-bank-01
-                    externalRequestId: BNK-2026-000458
-                    clientId: client-8f3a2c
-                    title: Кредитный пакет № 458
-                    status: PENDING_CONFIRMATION
-                    signatureType: UKEP
-                    documents:
-                      - documentId: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
-                        partnerDocumentId: DOC-458-01
-                        sequence: 1
-                        fileName: Кредитный договор № 458.pdf
-                        mimeType: application/pdf
-                        sizeBytes: 245760
-                        sha256: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
-                        status: PENDING
-                        uploadedAt: '2026-10-29T12:00:40Z'
-                        signedAt: null
-                      - documentId: b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e
-                        partnerDocumentId: DOC-458-02
-                        sequence: 2
-                        fileName: График платежей.pdf
-                        mimeType: application/pdf
-                        sizeBytes: 98304
-                        sha256: b4d1e8f2a6c30597e1f4a7b0c3d6e9f21528374a6b9c0d3e6f9a2b5c8d1e4f70
-                        status: PENDING
-                        uploadedAt: '2026-10-29T12:00:45Z'
-                        signedAt: null
-                    summary:
-                      documentsTotal: 2
-                      documentsSigned: 0
-                      documentsFailed: 0
-                      documentsPending: 2
-                      totalSizeBytes: 344064
-                    createdAt: '2026-10-29T12:00:00Z'
-                    updatedAt: '2026-10-29T12:01:10Z'
-                    submittedAt: '2026-10-29T12:01:10Z'
-                    expiresAt: '2026-11-05T18:00:00Z'
-                    completedAt: null
-                    version: 4
-                    activeSessionId: null
-                    notificationsEnabled: true
+              example:
+                packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
+                externalRequestId: BNK-2026-000458
+                clientId: client-8f3a2c
+                title: Кредитный пакет № 458
+                status: PENDING_CONFIRMATION
+                statusReason: 0
+                signatureType: UKEP
+                version: 3
+                createdAt: '2026-10-29T12:00:00Z'
+                updatedAt: '2026-10-29T12:01:10Z'
+                submittedAt: '2026-10-29T12:01:10Z'
+                expiresAt: '2026-11-05T18:00:00Z'
+                completedAt: 0
+                activeSessionId: 0
+                notificationsEnabled: true
+                summary:
+                  documentsTotal: 2
+                  documentsSigned: 0
+                  documentsFailed: 0
+                documents:
+                  - documentId: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
+                    partnerDocumentId: DOC-458-01
+                    sequence: 1
+                    fileName: Кредитный договор № 458.pdf
+                    mimeType: application/pdf
+                    sizeBytes: 245760
+                    sha256: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
+                    status: READY
+                    uploadedAt: '2026-10-29T12:00:40Z'
+                  - documentId: b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e
+                    partnerDocumentId: DOC-458-02
+                    sequence: 2
+                    fileName: График платежей.pdf
+                    mimeType: application/pdf
+                    sizeBytes: 81920
+                    sha256: 1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809
+                    status: READY
+                    uploadedAt: '2026-10-29T12:00:52Z'
+        '304':
+          description: Ресурс не изменился с момента, указанного в `If-None-Match`
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -594,8 +413,6 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalServerError'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
   /signing-packages/{packageId}/submit:
     parameters:
       - $ref: '#/components/parameters/PackageId'
@@ -603,27 +420,33 @@ paths:
     post:
       tags:
         - Пакеты документов
-      summary: Зафиксировать состав и отправить пакет на подписание
-      operationId: submitSigningPackage
+      summary: Отправить пакет на подписание
       description: |
-        Переводит пакет из `DRAFT` в `PENDING_CONFIRMATION` и фиксирует состав.
-        Перед переходом сервис проверяет, что для каждого документа загружено
-        содержимое, контрольные суммы совпадают с метаданными, формат и размеры
-        допустимы. После успешного вызова изменение состава невозможно.
+        Фиксирует состав пакета и переводит его из `DRAFT` в
+        `PENDING_CONFIRMATION`. После успешного вызова состав изменить нельзя:
+        допускается только подтверждение, отклонение или отмена пакета.
 
-        Требует `If-Match` с актуальным `ETag` пакета: при расхождении
-        возвращается `412 VERSION_MISMATCH`. Требует `Idempotency-Key`.
+        Операция требует, чтобы все документы были загружены и проверены
+        (`status = READY`). Если хотя бы один документ не готов, возвращается
+        `422 DOCUMENTS_NOT_READY` со списком проблемных документов.
 
-        Срок `expiresAt` устанавливается сервисом, если не был задан при
-        создании; после его истечения пакет переходит в `EXPIRED`. Если
-        запрошенный `expiresAt` уже истёк к моменту отправки, пакет остаётся в
-        `DRAFT`, а запрос завершается `409 PACKAGE_EXPIRED`.
+        Требуется заголовок `If-Match` с актуальным `ETag`: это защищает от
+        отправки устаревшего состава. Несовпадение версии — `412 VERSION_MISMATCH`.
+      operationId: submitSigningPackage
       security:
         - partnerOAuth:
             - signing-packages:write
       parameters:
-        - $ref: '#/components/parameters/IfMatch'
         - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitSigningPackageRequest'
+            example:
+              comment: Пакет сформирован для клиента branch MSK-12
       responses:
         '200':
           description: Пакет отправлен на подписание
@@ -636,52 +459,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SigningPackage'
-              examples:
-                submitted:
-                  summary: Пакет ожидает подтверждения
-                  value:
-                    packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
-                    partnerId: partner-bank-01
-                    externalRequestId: BNK-2026-000458
-                    clientId: client-8f3a2c
-                    title: Кредитный пакет № 458
-                    status: PENDING_CONFIRMATION
-                    signatureType: UKEP
-                    documents:
-                      - documentId: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
-                        partnerDocumentId: DOC-458-01
-                        sequence: 1
-                        fileName: Кредитный договор № 458.pdf
-                        mimeType: application/pdf
-                        sizeBytes: 245760
-                        sha256: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
-                        status: PENDING
-                        uploadedAt: '2026-10-29T12:00:40Z'
-                        signedAt: null
-                      - documentId: b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e
-                        partnerDocumentId: DOC-458-02
-                        sequence: 2
-                        fileName: График платежей.pdf
-                        mimeType: application/pdf
-                        sizeBytes: 98304
-                        sha256: b4d1e8f2a6c30597e1f4a7b0c3d6e9f21528374a6b9c0d3e6f9a2b5c8d1e4f70
-                        status: PENDING
-                        uploadedAt: '2026-10-29T12:00:45Z'
-                        signedAt: null
-                    summary:
-                      documentsTotal: 2
-                      documentsSigned: 0
-                      documentsFailed: 0
-                      documentsPending: 2
-                      totalSizeBytes: 344064
-                    createdAt: '2026-10-29T12:00:00Z'
-                    updatedAt: '2026-10-29T12:01:10Z'
-                    submittedAt: '2026-10-29T12:01:10Z'
-                    expiresAt: '2026-11-05T18:00:00Z'
-                    completedAt: null
-                    version: 4
-                    activeSessionId: null
-                    notificationsEnabled: true
+              example:
+                packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
+                externalRequestId: BNK-2026-000458
+                clientId: client-8f3a2c
+                status: PENDING_CONFIRMATION
+                signatureType: UKEP
+                version: 4
+                createdAt: '2026-10-29T12:00:00Z'
+                updatedAt: '2026-10-29T12:03:00Z'
+                submittedAt: '2026-10-29T12:03:00Z'
+                expiresAt: '2026-11-05T18:00:00Z'
+                notificationsEnabled: true
+                summary:
+                  documentsTotal: 2
+                  documentsSigned: 0
+                  documentsFailed: 0
+                documents:
+                  - documentId: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
+                    partnerDocumentId: DOC-458-01
+                    sequence: 1
+                    fileName: Кредитный договор № 458.pdf
+                    mimeType: application/pdf
+                    sizeBytes: 245760
+                    sha256: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
+                    status: READY
+                    uploadedAt: '2026-10-29T12:00:40Z'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -694,10 +497,10 @@ paths:
           $ref: '#/components/responses/Conflict'
         '412':
           $ref: '#/components/responses/PreconditionFailed'
-        '413':
-          $ref: '#/components/responses/PayloadTooLarge'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '500':
@@ -712,34 +515,29 @@ paths:
       tags:
         - Пакеты документов
       summary: Отменить пакет документов
-      operationId: cancelSigningPackage
       description: |
-        Отменяет пакет до начала криптографической операции. Допустимо только
-        в состояниях `DRAFT` и `PENDING_CONFIRMATION`. После перехода в
-        `SIGNING` отмена невозможна: уже выполненные криптографические операции
-        не компенсируются автоматически.
+        Отменяет пакет до подтверждения клиентом. Допустимые исходные
+        состояния — `DRAFT` и `PENDING_CONFIRMATION`. После подтверждения
+        отмена невозможна: пакет находится в `SIGNING` или терминальном
+        состоянии, и запрос завершается `409 INVALID_STATE_TRANSITION`.
 
-        Требует `If-Match` и `Idempotency-Key`. Повторная отмена уже отменённого
-        пакета с тем же ключом возвращает сохранённый ответ; с новым ключом —
-        `409 INVALID_STATE_TRANSITION`.
+        Отмена активной сессии подтверждения переводит её в `EXPIRED`.
+        Криптографическая операция при отмене не выполняется.
+      operationId: cancelSigningPackage
       security:
         - partnerOAuth:
             - signing-packages:write
       parameters:
-        - $ref: '#/components/parameters/IfMatch'
         - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CancelSigningPackageRequest'
-            examples:
-              partnerCancelled:
-                summary: Отмена по инициативе партнёра
-                value:
-                  reasonCode: PARTNER_REQUEST
-                  comment: Пакет сформирован повторно в новой операции
+            example:
+              reason: Клиент отказался от сделки до подтверждения
       responses:
         '200':
           description: Пакет отменён
@@ -752,53 +550,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SigningPackage'
-              examples:
-                cancelled:
-                  summary: Пакет в состоянии CANCELLED
-                  value:
-                    packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
-                    partnerId: partner-bank-01
-                    externalRequestId: BNK-2026-000458
-                    clientId: client-8f3a2c
-                    title: Кредитный пакет № 458
-                    status: CANCELLED
-                    statusReason: Пакет сформирован повторно в новой операции
-                    signatureType: UKEP
-                    documents:
-                      - documentId: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
-                        partnerDocumentId: DOC-458-01
-                        sequence: 1
-                        fileName: Кредитный договор № 458.pdf
-                        mimeType: application/pdf
-                        sizeBytes: 245760
-                        sha256: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
-                        status: PENDING
-                        uploadedAt: '2026-10-29T12:00:40Z'
-                        signedAt: null
-                      - documentId: b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e
-                        partnerDocumentId: DOC-458-02
-                        sequence: 2
-                        fileName: График платежей.pdf
-                        mimeType: application/pdf
-                        sizeBytes: 98304
-                        sha256: b4d1e8f2a6c30597e1f4a7b0c3d6e9f21528374a6b9c0d3e6f9a2b5c8d1e4f70
-                        status: PENDING
-                        uploadedAt: '2026-10-29T12:00:45Z'
-                        signedAt: null
-                    summary:
-                      documentsTotal: 2
-                      documentsSigned: 0
-                      documentsFailed: 0
-                      documentsPending: 2
-                      totalSizeBytes: 344064
-                    createdAt: '2026-10-29T12:00:00Z'
-                    updatedAt: '2026-10-29T12:02:00Z'
-                    submittedAt: '2026-10-29T12:01:10Z'
-                    expiresAt: '2026-11-05T18:00:00Z'
-                    completedAt: null
-                    version: 5
-                    activeSessionId: null
-                    notificationsEnabled: true
+              example:
+                packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
+                externalRequestId: BNK-2026-000458
+                clientId: client-8f3a2c
+                status: CANCELLED
+                statusReason: Клиент отказался от сделки до подтверждения
+                signatureType: UKEP
+                version: 5
+                createdAt: '2026-10-29T12:00:00Z'
+                updatedAt: '2026-10-29T12:05:00Z'
+                submittedAt: '2026-10-29T12:03:00Z'
+                completedAt: '2026-10-29T12:05:00Z'
+                notificationsEnabled: true
+                summary:
+                  documentsTotal: 2
+                  documentsSigned: 0
+                  documentsFailed: 0
+                documents:
+                  - documentId: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
+                    partnerDocumentId: DOC-458-01
+                    sequence: 1
+                    fileName: Кредитный договор № 458.pdf
+                    mimeType: application/pdf
+                    sizeBytes: 245760
+                    sha256: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
+                    status: READY
+                    uploadedAt: '2026-10-29T12:00:40Z'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -811,12 +589,12 @@ paths:
           $ref: '#/components/responses/Conflict'
         '412':
           $ref: '#/components/responses/PreconditionFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalServerError'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
   /signing-packages/{packageId}/documents/{documentId}/content:
     parameters:
       - $ref: '#/components/parameters/PackageId'
@@ -826,26 +604,35 @@ paths:
       tags:
         - Документы
       summary: Загрузить содержимое документа
-      operationId: uploadDocumentContent
       description: |
-        Загружает содержимое документа в формате PDF. Допустимо только для
-        пакета в состоянии `DRAFT`; для каждого документа содержимое может быть
-        загружено повторно, при этом предыдущая версия заменяется.
+        Загружает содержимое документа. Допускается только в состоянии пакета
+        `DRAFT` и только для документов в состоянии `PENDING_UPLOAD` или
+        `UPLOADED`; повторная загрузка заменяет содержимое и пересчитывает
+        контрольную сумму.
 
-        Сервис вычисляет SHA-256 полученного содержимого и сравнивает его с
-        `sha256`, указанным при создании пакета. При несовпадении содержимое не
-        принимается (`422 CHECKSUM_MISMATCH`). Если передан заголовок
-        `X-Content-SHA256`, он также должен совпасть с вычисленным значением.
+        Сервис сверяет переданный `X-Content-SHA256` с фактической суммой
+        содержимого. Несовпадение — `400 CHECKSUM_MISMATCH`; размер больше
+        лимита — `413 PAYLOAD_TOO_LARGE`. После проверки документ переходит в
+        `READY`.
 
-        Загрузка идемпотентна по содержимому: повторная передача тех же байтов
-        возвращает `200` и не изменяет версию пакета. Загрузка другого
-        содержимого в `DRAFT` заменяет предыдущую версию и увеличивает версию
-        пакета; содержимое должно соответствовать `sha256` из метаданных.
+        Частичная загрузка и возобновление (`Content-Range`) в первой версии
+        не поддерживаются и зафиксированы как открытый вопрос.
+      operationId: uploadDocumentContent
       security:
         - partnerOAuth:
             - signing-packages:write
       parameters:
-        - $ref: '#/components/parameters/XContentSha256Request'
+        - name: X-Content-SHA256
+          in: header
+          required: true
+          description: |
+            SHA-256 содержимого в нижнем шестнадцатеричном регистре. Должен
+            совпадать с `sha256`, указанным при создании пакета, и с фактически
+            переданными байтами.
+          schema:
+            type: string
+            pattern: '^[a-f0-9]{64}$'
+            example: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
       requestBody:
         required: true
         description: Содержимое документа в формате PDF
@@ -854,10 +641,9 @@ paths:
             schema:
               type: string
               format: binary
-              description: Бинарное содержимое PDF-документа
       responses:
         '200':
-          description: Содержимое принято
+          description: Содержимое загружено и проверено
           headers:
             ETag:
               $ref: '#/components/headers/ETag'
@@ -865,19 +651,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Document'
-              examples:
-                uploaded:
-                  summary: Документ загружен
-                  value:
-                    documentId: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
-                    partnerDocumentId: DOC-458-01
-                    sequence: 1
-                    fileName: Кредитный договор № 458.pdf
-                    mimeType: application/pdf
-                    sizeBytes: 245760
-                    sha256: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
-                    status: PENDING
-                    uploadedAt: '2026-10-29T12:00:40Z'
+              example:
+                documentId: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
+                partnerDocumentId: DOC-458-01
+                sequence: 1
+                fileName: Кредитный договор № 458.pdf
+                mimeType: application/pdf
+                sizeBytes: 245760
+                sha256: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
+                status: READY
+                uploadedAt: '2026-10-29T12:00:40Z'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -904,58 +687,47 @@ paths:
       tags:
         - Документы
       summary: Скачать содержимое документа
-      operationId: downloadDocumentContent
       description: |
-        Возвращает исходное или подписанное содержимое документа.
+        Возвращает исходное или подписанное содержимое документа. Вариант
+        `SIGNED` доступен только для документов в состоянии `SIGNED`; для
+        остальных возвращается `409 DOCUMENT_NOT_SIGNED`.
 
-        * `ORIGINAL` — исходный PDF, принятый от партнёра. Доступен партнёру и
-          клиенту, которому адресован пакет.
-        * `SIGNED` — PDF с внедрённой подписью. Доступен только после успешного
-          подписания документа; иначе `409 DOCUMENT_NOT_SIGNED`.
-
-        Клиент получает доступ к содержимому только после отправки пакета
-        партнёром (`PENDING_CONFIRMATION` и далее).
-
-        Сервис возвращает `X-Content-SHA256` с контрольной суммой выдаваемого
-        файла и `ETag`. Для подписанного документа дополнительно возвращается
-        `X-Signature-Id`.
+        Доступ к содержимому проверяется по тем же правилам, что и доступ к
+        пакету: партнёр видит только свои пакеты, клиент — только пакеты со
+        своим `clientId`.
+      operationId: downloadDocumentContent
       security:
         - partnerOAuth:
             - signing-packages:read
         - clientOAuth:
-            - signing:read
+            - signing-packages:read
       parameters:
         - name: variant
           in: query
           required: false
-          description: Вариант содержимого документа
+          description: |
+            Вариант содержимого: `ORIGINAL` — исходный документ, `SIGNED` —
+            документ с электронной подписью. По умолчанию `ORIGINAL`.
           schema:
             type: string
             enum:
               - ORIGINAL
               - SIGNED
             default: ORIGINAL
+            example: SIGNED
       responses:
         '200':
           description: Содержимое документа
           headers:
             Content-Disposition:
               $ref: '#/components/headers/ContentDisposition'
-            X-Content-SHA256:
-              $ref: '#/components/headers/XContentSha256Response'
             ETag:
               $ref: '#/components/headers/ETag'
-            X-Signature-Id:
-              description: Идентификатор подписи; присутствует только для variant=SIGNED
-              schema:
-                type: string
-                format: uuid
           content:
             application/pdf:
               schema:
                 type: string
                 format: binary
-                description: Бинарное содержимое PDF-документа
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -968,8 +740,6 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalServerError'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
   /signing-packages/{packageId}/result:
     parameters:
       - $ref: '#/components/parameters/PackageId'
@@ -978,115 +748,71 @@ paths:
       tags:
         - Результаты
       summary: Получить результат обработки пакета
-      operationId: getSigningResult
       description: |
-        Возвращает результат по пакету и каждому документу: состояние, данные
-        подписи и сертификата, доступность подписанного файла, ошибку документа.
+        Возвращает агрегированный результат и результат по каждому документу.
+        Для незавершённых пакетов ответ содержит текущее состояние и
+        незаполненные результаты: сервис не сообщает об успехе, пока он не
+        подтверждён криптографическим компонентом.
 
-        Метод можно вызывать в любом состоянии: до завершения он возвращает
-        текущий статус и промежуточные результаты, после завершения — итоговый
-        результат. Если пакет ещё не завершён, `completedAt` равен `null`, а
-        документы могут находиться в состоянии `PENDING` или `SIGNING`.
-
-        Результат по пакету не заменяет результаты документов: при частичном
-        подписании `status` пакета равен `PARTIALLY_SIGNED`, а по каждому
-        документу возвращается собственный статус и ошибка.
-
-        Клиент получает доступ к результату только после отправки пакета
-        партнёром (`PENDING_CONFIRMATION` и далее).
+        Если результат обработки неизвестен, пакет остаётся в `SIGNING`, а
+        поле `resultUnknown` принимает значение `true`; партнёру следует
+        повторять запрос, а не инициировать подписание заново.
+      operationId: getSigningResult
       security:
         - partnerOAuth:
             - signing-packages:read
         - clientOAuth:
-            - signing:read
+            - signing-packages:read
       responses:
         '200':
-          description: Текущий результат обработки
-          headers:
-            Cache-Control:
-              description: Результат содержит чувствительные данные и не кэшируется
-              schema:
-                type: string
-                example: no-store
+          description: Результат обработки пакета
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SigningResult'
-              examples:
-                signedResult:
-                  summary: Пакет полностью подписан
-                  value:
-                    packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
+              example:
+                packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
+                status: PARTIALLY_SIGNED
+                signatureType: UKEP
+                completedAt: '2026-10-29T12:07:30Z'
+                resultUnknown: false
+                summary:
+                  documentsTotal: 2
+                  documentsSigned: 1
+                  documentsFailed: 1
+                documents:
+                  - documentId: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
+                    partnerDocumentId: DOC-458-01
+                    sequence: 1
+                    fileName: Кредитный договор № 458.pdf
+                    mimeType: application/pdf
+                    sizeBytes: 245760
+                    sha256: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
                     status: SIGNED
-                    signatureType: UKEP
-                    completedAt: '2026-10-29T12:07:30Z'
-                    summary:
-                      documentsTotal: 2
-                      documentsSigned: 2
-                      documentsFailed: 0
-                      documentsPending: 0
-                      totalSizeBytes: 344064
-                    documents:
-                      - documentId: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
-                        partnerDocumentId: DOC-458-01
-                        sequence: 1
-                        fileName: Кредитный договор № 458.pdf
-                        mimeType: application/pdf
-                        sizeBytes: 245760
-                        sha256: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
-                        status: SIGNED
-                        uploadedAt: '2026-10-29T12:00:40Z'
-                        signedAt: '2026-10-29T12:07:12Z'
-                        signature:
-                          signatureId: e5f6a7b8-c9d0-4e1f-8a2b-3c4d5e6f7081
-                          signatureType: UKEP
-                          signatureFormat: PAdES-BES
-                          signedAt: '2026-10-29T12:07:12Z'
-                          signedContentSha256: c8e5a2f9d6b34071f2a5c8e1b4d7a0f32639485b7c0e1d4f6a9b2c5d8e1f4073
-                          verificationStatus: VALID
-                          certificate:
-                            certificateId: cert-2026-000123
-                            serialNumber: 04A7B9C1D2E3F40506
-                            subject: CN=Иванов Иван Иванович, INN=770912345678, O=ООО "Банк Пример"
-                            issuer: CN=УЦ Пример, O=ООО "УЦ Пример"
-                            validFrom: '2026-01-15T00:00:00Z'
-                            validTo: '2027-01-15T00:00:00Z'
-                            thumbprint: 3a7d1e5f9b2c4a6d8e0f1a3b5c7d9e1f2a4b6c8d0e1f3a5b7c9d1e3f5a7b9c1d
-                        signedContent:
-                          sha256: c8e5a2f9d6b34071f2a5c8e1b4d7a0f32639485b7c0e1d4f6a9b2c5d8e1f4073
-                          sizeBytes: 312450
-                          availableUntil: '2026-11-28T12:07:30Z'
-                          downloadPath: /v1/signing-packages/5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01/documents/a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d/content?variant=SIGNED
-                      - documentId: b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e
-                        partnerDocumentId: DOC-458-02
-                        sequence: 2
-                        fileName: График платежей.pdf
-                        mimeType: application/pdf
-                        sizeBytes: 98304
-                        sha256: b4d1e8f2a6c30597e1f4a7b0c3d6e9f21528374a6b9c0d3e6f9a2b5c8d1e4f70
-                        status: SIGNED
-                        uploadedAt: '2026-10-29T12:00:45Z'
-                        signedAt: '2026-10-29T12:07:18Z'
-                        signature:
-                          signatureId: f6071829-3a4b-4c5d-9e6f-7a8b9c0d1e2f
-                          signatureType: UKEP
-                          signatureFormat: PAdES-BES
-                          signedAt: '2026-10-29T12:07:18Z'
-                          signedContentSha256: c8e5a2f9d6b34071f2a5c8e1b4d7a0f32639485b7c0e1d4f6a9b2c5d8e1f4073
-                          verificationStatus: VALID
-                          certificate:
-                            certificateId: cert-2026-000123
-                            serialNumber: 04A7B9C1D2E3F40506
-                            subject: CN=Иванов Иван Иванович, INN=770912345678, O=ООО "Банк Пример"
-                            issuer: CN=УЦ Пример, O=ООО "УЦ Пример"
-                            validFrom: '2026-01-15T00:00:00Z'
-                            validTo: '2027-01-15T00:00:00Z'
-                            thumbprint: 3a7d1e5f9b2c4a6d8e0f1a3b5c7d9e1f2a4b6c8d0e1f3a5b7c9d1e3f5a7b9c1d
-                        signedContent:
-                          sha256: c8e5a2f9d6b34071f2a5c8e1b4d7a0f32639485b7c0e1d4f6a9b2c5d8e1f4073
-                          sizeBytes: 118900
-                          availableUntil: '2026-11-28T12:07:30Z'
-                          downloadPath: /v1/signing-packages/5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01/documents/b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e/content?variant=SIGNED
+                    signedAt: '2026-10-29T12:07:12Z'
+                    signature:
+                      signatureType: UKEP
+                      signatureFormat: PAdES-BES
+                      signedAt: '2026-10-29T12:07:12Z'
+                      certificate:
+                        serialNumber: 01A2B3C4D5E6F7089A
+                        subject: CN=Иванов Иван Иванович, O=ООО «Клиент»
+                        issuer: CN=УЦ ПодписьОнлайн, O=АО «УЦ»
+                        validFrom: '2025-12-01T00:00:00Z'
+                        validTo: '2026-12-01T00:00:00Z'
+                      signedContentSha256: 7d1e2f3a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f
+                  - documentId: b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e
+                    partnerDocumentId: DOC-458-02
+                    sequence: 2
+                    fileName: График платежей.pdf
+                    mimeType: application/pdf
+                    sizeBytes: 81920
+                    sha256: 1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809
+                    status: FAILED
+                    error:
+                      code: SIGNING_PROVIDER_TIMEOUT
+                      message: Криптографический компонент не ответил за отведённое время
+                      retryable: true
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -1097,8 +823,8 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalServerError'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
   /signing-packages/{packageId}/signing-sessions:
     parameters:
       - $ref: '#/components/parameters/PackageId'
@@ -1107,23 +833,21 @@ paths:
       tags:
         - Подписание клиентом
       summary: Инициировать подписание пакета клиентом
-      operationId: createSigningSession
       description: |
-        Создаёт сессию подтверждения для клиента, которому адресован пакет.
-        Допустимо только для пакета в состоянии `PENDING_CONFIRMATION` и только
-        при наличии действующего сертификата клиента.
+        Создаёт сессию подтверждения для клиента. Пакет должен находиться в
+        `PENDING_CONFIRMATION`; одновременно допускается одна активная сессия
+        на пакет, повторный вызов возвращает `409 ACTIVE_SESSION_EXISTS` с
+        идентификатором действующей сессии.
 
-        В ответе возвращается вызов подтверждения: маскированный получатель,
-        срок действия и число оставшихся попыток. Одноразовый код отправляется
-        выбранным способом; код не возвращается в ответе API.
-
-        Одновременно может существовать только одна активная сессия. Повторное
-        создание при активной сессии возвращает `409 ACTIVE_SESSION_EXISTS` с
-        идентификатором активной сессии. После истечения или блокировки сессии
-        клиент может создать новую, пока пакет остаётся в `PENDING_CONFIRMATION`.
+        Сервис проверяет наличие и действительность сертификата клиента до
+        выдачи вызова подтверждения: отсутствие сертификата, отзыв или
+        истечение срока — `422` с соответствующим кодом. Код подтверждения в
+        ответе не возвращается: доставка выполняется по каналу, определённому
+        `confirmationMethod`.
+      operationId: createSigningSession
       security:
         - clientOAuth:
-            - signing:confirm
+            - signing-sessions:write
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -1132,51 +856,36 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateSigningSessionRequest'
-            examples:
-              smsOtp:
-                summary: Подтверждение по одноразовому коду
-                value:
-                  confirmationMethod: SMS_OTP
-                  deviceId: device-7c1e9a
+            example:
+              confirmationMethod: SMS_OTP
+              deviceId: device-7c1e9a
       responses:
         '201':
-          description: Сессия создана, вызов подтверждения сформирован
+          description: Сессия подтверждения создана
           headers:
             Location:
               $ref: '#/components/headers/Location'
-            ETag:
-              $ref: '#/components/headers/ETag'
             Idempotent-Replayed:
               $ref: '#/components/headers/IdempotentReplayed'
-            Cache-Control:
-              description: Параметры вызова подтверждения не кэшируются
-              schema:
-                type: string
-                example: no-store
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SigningSession'
-              examples:
-                created:
-                  summary: Сессия ожидает подтверждения
-                  value:
-                    sessionId: c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f
-                    packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
-                    status: CREATED
-                    packageStatus: PENDING_CONFIRMATION
-                    confirmationMethod: SMS_OTP
-                    challenge:
-                      challengeId: d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f70
-                      method: SMS_OTP
-                      destinationMasked: '+7 *** *** 45-67'
-                      expiresAt: '2026-10-29T12:15:00Z'
-                      attemptsRemaining: 3
-                    createdAt: '2026-10-29T12:00:00Z'
-                    expiresAt: '2026-10-29T12:15:00Z'
-                    confirmedAt: null
-                    completedAt: null
-                    version: 1
+              example:
+                sessionId: c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f
+                packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
+                status: PENDING
+                packageStatus: PENDING_CONFIRMATION
+                confirmationMethod: SMS_OTP
+                createdAt: '2026-10-29T12:02:00Z'
+                expiresAt: '2026-10-29T12:17:00Z'
+                version: 1
+                challenge:
+                  challengeId: ch-9f8e7d6c5b4a
+                  method: SMS_OTP
+                  recipientMasked: '+7 *** ***-12-34'
+                  attemptsLeft: 3
+                  expiresAt: '2026-10-29T12:17:00Z'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1193,8 +902,6 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalServerError'
-        '502':
-          $ref: '#/components/responses/BadGateway'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
   /signing-sessions/{sessionId}:
@@ -1205,47 +912,36 @@ paths:
       tags:
         - Подписание клиентом
       summary: Получить состояние сессии подписания
-      operationId: getSigningSession
       description: |
-        Возвращает состояние сессии, параметры вызова подтверждения и
-        агрегированное состояние пакета. Доступно только клиенту, которому
-        принадлежит сессия.
+        Возвращает состояние сессии подтверждения и состояние связанного пакета.
+        Используется клиентом для восстановления сценария после перезапуска
+        приложения и партнёром для диагностики.
 
-        После подтверждения сессия находится в `CONFIRMED`, пока идёт
-        подписание. Когда пакет достигает терминального состояния, сессия
-        переходит в `COMPLETED`; итог по документам доступен в результате пакета.
+        Параметры вызова подтверждения (`challenge`) возвращаются только пока
+        сессия в состоянии `PENDING`.
+      operationId: getSigningSession
       security:
         - clientOAuth:
-            - signing:confirm
+            - signing-sessions:read
+        - partnerOAuth:
+            - signing-packages:read
       responses:
         '200':
           description: Состояние сессии
-          headers:
-            ETag:
-              $ref: '#/components/headers/ETag'
-            Cache-Control:
-              description: Параметры вызова подтверждения не кэшируются
-              schema:
-                type: string
-                example: no-store
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SigningSession'
-              examples:
-                confirmed:
-                  summary: Сессия подтверждена, идёт подписание
-                  value:
-                    sessionId: c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f
-                    packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
-                    status: CONFIRMED
-                    packageStatus: SIGNING
-                    confirmationMethod: SMS_OTP
-                    createdAt: '2026-10-29T12:00:00Z'
-                    expiresAt: '2026-10-29T12:15:00Z'
-                    confirmedAt: '2026-10-29T12:03:20Z'
-                    completedAt: null
-                    version: 2
+              example:
+                sessionId: c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f
+                packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
+                status: CONFIRMED
+                packageStatus: SIGNING
+                confirmationMethod: SMS_OTP
+                createdAt: '2026-10-29T12:02:00Z'
+                expiresAt: '2026-10-29T12:17:00Z'
+                confirmedAt: '2026-10-29T12:03:20Z'
+                version: 2
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -1256,8 +952,6 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalServerError'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
   /signing-sessions/{sessionId}/confirm:
     parameters:
       - $ref: '#/components/parameters/SessionId'
@@ -1266,29 +960,24 @@ paths:
       tags:
         - Подписание клиентом
       summary: Подтвердить подписание пакета
-      operationId: confirmSigningSession
       description: |
-        Принимает одноразовый код подтверждения и запускает криптографическую
-        операцию подписания. Пакет переходит в `SIGNING`, сессия — в `CONFIRMED`.
-        Ответ `202` означает, что подтверждение принято и обработка продолжается;
-        результат нужно получать через статус пакета или результат, а не считать
-        ответ подтверждением успешного подписания.
+        Подтверждает намерение клиента подписать пакет. Успешный ответ
+        означает, что подтверждение принято и подписание запущено, но не
+        означает, что документы уже подписаны: результат формируется
+        асинхронно и доступен через `GET /signing-packages/{packageId}/result`.
 
-        При неверном коде возвращается `422 INVALID_CONFIRMATION_CODE` с числом
-        оставшихся попыток (в `details`, поле `attemptsRemaining`). После
-        третьей неудачной попытки сессия блокируется
-        (`409 SESSION_BLOCKED`), пакет остаётся в `PENDING_CONFIRMATION`.
+        Неверный код — `400 INVALID_CONFIRMATION_CODE`; после исчерпания
+        попыток сессия блокируется (`409 SESSION_BLOCKED`); истёкшая сессия —
+        `409 SESSION_EXPIRED`.
 
-        Повторный вызов с тем же `Idempotency-Key` возвращает сохранённый ответ и
-        не запускает повторное подписание. Повтор с новым ключом при уже
-        подтверждённой сессии возвращает `409 INVALID_SESSION_STATE`.
-
-        При тайм-ауте или ошибке криптографического компонента результат может
-        быть неизвестен: необходимо запросить состояние пакета и не повторять
-        подтверждение вслепую.
+        Повторный вызов для уже подтверждённой сессии не запускает повторную
+        криптографическую операцию: возвращается `202` с текущим состоянием
+        сессии. Если результат подписания неизвестен, сервис не сообщает об
+        успехе и сохраняет состояние `SIGNING`.
+      operationId: confirmSigningSession
       security:
         - clientOAuth:
-            - signing:confirm
+            - signing-sessions:write
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -1297,49 +986,29 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ConfirmSigningSessionRequest'
-            examples:
-              smsCode:
-                summary: Код из SMS
-                value:
-                  challengeId: d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f70
-                  code: '482915'
+            example:
+              challengeId: ch-9f8e7d6c5b4a
+              confirmationCode: '482913'
       responses:
         '202':
-          description: Подтверждение принято, подписание выполняется
+          description: Подтверждение принято, подписание запущено
           headers:
-            Location:
-              description: Ссылка на результат обработки пакета
-              schema:
-                type: string
-                format: uri-reference
-                example: /v1/signing-packages/5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01/result
-            ETag:
-              $ref: '#/components/headers/ETag'
-            Retry-After:
-              description: Рекомендуемая задержка перед запросом результата, секунды
-              schema:
-                type: integer
-                example: 2
             Idempotent-Replayed:
               $ref: '#/components/headers/IdempotentReplayed'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SigningSession'
-              examples:
-                confirmed:
-                  summary: Сессия подтверждена
-                  value:
-                    sessionId: c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f
-                    packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
-                    status: CONFIRMED
-                    packageStatus: SIGNING
-                    confirmationMethod: SMS_OTP
-                    createdAt: '2026-10-29T12:00:00Z'
-                    expiresAt: '2026-10-29T12:15:00Z'
-                    confirmedAt: '2026-10-29T12:03:20Z'
-                    completedAt: null
-                    version: 2
+              example:
+                sessionId: c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f
+                packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
+                status: CONFIRMED
+                packageStatus: SIGNING
+                confirmationMethod: SMS_OTP
+                createdAt: '2026-10-29T12:02:00Z'
+                expiresAt: '2026-10-29T12:17:00Z'
+                confirmedAt: '2026-10-29T12:03:20Z'
+                version: 2
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1370,18 +1039,17 @@ paths:
       tags:
         - Подписание клиентом
       summary: Отклонить подписание пакета
-      operationId: rejectSigningSession
       description: |
-        Фиксирует отказ клиента от подписания. Допустимо только для сессии в
-        состоянии `CREATED` и пакета в `PENDING_CONFIRMATION`; после начала
-        подписания отказ невозможен (`409 INVALID_SESSION_STATE`).
+        Фиксирует отказ клиента от подписания. Сессия переходит в `REJECTED`,
+        пакет — в `REJECTED`; криптографическая операция не выполняется.
 
-        Пакет переходит в `REJECTED`, документы остаются неподписанными.
-        Требует `Idempotency-Key`; повторная отправка того же отказа возвращает
-        сохранённый ответ.
+        Отклонить можно только сессию в состоянии `PENDING`. Для сессии в
+        `CONFIRMED` возвращается `409 INVALID_SESSION_STATE`: отмена уже
+        запущенного подписания не поддерживается.
+      operationId: rejectSigningSession
       security:
         - clientOAuth:
-            - signing:confirm
+            - signing-sessions:write
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -1390,38 +1058,28 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/RejectSigningSessionRequest'
-            examples:
-              declined:
-                summary: Клиент отказался от подписания
-                value:
-                  reasonCode: CLIENT_DECLINED
-                  comment: Клиент не согласен с условиями документа
+            example:
+              reason: Клиент не согласен с условиями документа
       responses:
         '200':
-          description: Отказ зафиксирован
+          description: Подписание отклонено клиентом
           headers:
-            ETag:
-              $ref: '#/components/headers/ETag'
             Idempotent-Replayed:
               $ref: '#/components/headers/IdempotentReplayed'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SigningSession'
-              examples:
-                rejected:
-                  summary: Сессия и пакет отклонены
-                  value:
-                    sessionId: c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f
-                    packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
-                    status: REJECTED
-                    packageStatus: REJECTED
-                    confirmationMethod: SMS_OTP
-                    createdAt: '2026-10-29T12:00:00Z'
-                    expiresAt: '2026-10-29T12:15:00Z'
-                    confirmedAt: null
-                    completedAt: '2026-10-29T12:04:00Z'
-                    version: 2
+              example:
+                sessionId: c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f
+                packageId: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
+                status: REJECTED
+                packageStatus: REJECTED
+                confirmationMethod: SMS_OTP
+                createdAt: '2026-10-29T12:02:00Z'
+                expiresAt: '2026-10-29T12:17:00Z'
+                completedAt: '2026-10-29T12:04:10Z'
+                version: 2
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1436,72 +1094,37 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalServerError'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
 components:
   securitySchemes:
     partnerOAuth:
       type: oauth2
       description: |
-        Машинная идентичность системы партнёра. Токен выдаётся по OAuth 2.0
-        Client Credentials; `client_id` однозначно сопоставлен партнёру.
-        Рекомендуется дополнительная аутентификация канала по mTLS.
+        Машинная авторизация системы партнёра по OAuth 2.0 Client Credentials.
+        Партнёр определяется по `client_id` токена; передача `partnerId` в
+        запросах не предусмотрена. Для межсистемного канала рекомендуется
+        mTLS — обязательность согласуется отдельно.
       flows:
         clientCredentials:
-          tokenUrl: https://auth.podpisonline.example/oauth2/token
+          tokenUrl: https://auth.podpis-online.example/oauth2/token
           scopes:
-            signing-packages:write: Создание пакетов, загрузка документов, отправка и отмена
-            signing-packages:read: Просмотр пакетов, результатов и скачивание документов
+            'signing-packages:read': Чтение пакетов, документов и результата
+            'signing-packages:write': Создание, загрузка документов, отправка и отмена пакета
     clientOAuth:
       type: oauth2
       description: |
-        Пользовательская идентичность клиента. Токен выпускается для приложения
-        партнёра после аутентификации клиента. `sub` токена должен совпадать с
-        `clientId`, указанным партнёром при создании пакета.
+        Токен клиента выпускается приложением партнёра по Authorization Code с
+        PKCE после аутентификации клиента. `sub` токена должен совпадать с
+        `clientId` пакета. Сервис проверяет подпись, `iss`, `aud`, срок действия
+        и scopes.
       flows:
         authorizationCode:
-          authorizationUrl: https://auth.partner.example/oauth2/authorize
-          tokenUrl: https://auth.partner.example/oauth2/token
+          authorizationUrl: https://auth.podpis-online.example/oauth2/authorize
+          tokenUrl: https://auth.podpis-online.example/oauth2/token
           scopes:
-            signing:read: Просмотр адресованных пакетов и скачивание документов
-            signing:confirm: Инициирование, подтверждение и отклонение подписания
+            'signing-packages:read': Просмотр пакета и документов клиентом
+            'signing-sessions:read': Просмотр состояния сессии подписания
+            'signing-sessions:write': Инициирование, подтверждение и отклонение подписания
   parameters:
-    XRequestId:
-      name: X-Request-Id
-      in: header
-      required: false
-      description: Идентификатор запроса для сквозной корреляции; возвращается в ответе и в ошибках
-      schema:
-        type: string
-        minLength: 8
-        maxLength: 64
-        pattern: '^[A-Za-z0-9._:-]+$'
-      example: req-7f3a9c21
-    IdempotencyKey:
-      name: Idempotency-Key
-      in: header
-      required: true
-      description: |
-        Ключ идемпотентности изменяющей операции. Повтор с тем же ключом и тем
-        же телом запроса возвращает сохранённый ответ; с другим телом —
-        `409 IDEMPOTENCY_KEY_REUSED`.
-      schema:
-        type: string
-        minLength: 8
-        maxLength: 64
-        pattern: '^[A-Za-z0-9._:-]+$'
-      example: 7b2c4d6e-1f3a-4b5c-9d8e-0a1b2c3d4e5f
-    IfMatch:
-      name: If-Match
-      in: header
-      required: true
-      description: |
-        Версия пакета в формате `"<version>"`, полученная из `ETag`. Защищает от
-        изменения состояния по устаревшим данным.
-      schema:
-        type: string
-        pattern: '^"[1-9][0-9]*"$'
-      example: '"3"'
     PackageId:
       name: packageId
       in: path
@@ -1510,375 +1133,440 @@ components:
       schema:
         type: string
         format: uuid
-      example: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
+        example: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
     DocumentId:
       name: documentId
       in: path
       required: true
-      description: Идентификатор документа в пакете
+      description: Идентификатор документа в составе пакета
       schema:
         type: string
         format: uuid
-      example: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
+        example: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
     SessionId:
       name: sessionId
       in: path
       required: true
-      description: Идентификатор сессии подписания
+      description: Идентификатор сессии подтверждения подписания
       schema:
         type: string
         format: uuid
-      example: c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f
-    XContentSha256Request:
-      name: X-Content-SHA256
+        example: c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Ключ идемпотентности изменяющей операции. Уникален в пределах партнёра.
+        Повтор с тем же ключом и телом возвращает сохранённый ответ, повтор с
+        другим телом — `409 IDEMPOTENCY_KEY_REUSED`.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+        pattern: '^[A-Za-z0-9._:-]+$'
+        example: 3f6b1c2d-8e9a-4b7c-9d1e-2f3a4b5c6d7e
+    XRequestId:
+      name: X-Request-Id
       in: header
       required: false
       description: |
-        Ожидаемая контрольная сумма содержимого в hex-формате. Если передана,
-        должна совпадать с вычисленной сервисом и с `sha256` метаданных
-        документа.
+        Идентификатор запроса для сквозной трассировки. Если не передан,
+        сервис формирует значение самостоятельно и возвращает его в `traceId`
+        ответа об ошибке.
       schema:
         type: string
-        pattern: '^[a-f0-9]{64}$'
-      example: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
-    WebhookEventId:
-      name: X-Webhook-Event-Id
+        minLength: 8
+        maxLength: 64
+        example: req-20261029-000458
+    IfMatch:
+      name: If-Match
       in: header
       required: true
-      description: Уникальный идентификатор события для защиты от повторной обработки
+      description: |
+        Значение `ETag`, полученное при чтении пакета. Защищает от изменения
+        состояния по устаревшим данным. Несовпадение версии —
+        `412 VERSION_MISMATCH`; отсутствие заголовка — `428 PRECONDITION_REQUIRED`.
       schema:
         type: string
-        format: uuid
-    WebhookTimestamp:
-      name: X-Webhook-Timestamp
-      in: header
-      required: true
-      description: Время формирования уведомления, Unix-время в секундах
+        example: '"3"'
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        Курсор следующей страницы, полученный в предыдущем ответе. Непрозрачная
+        строка; при некорректном значении возвращается `400 INVALID_CURSOR`.
+      schema:
+        type: string
+        maxLength: 512
+        example: eyJjcmVhdGVkQXQiOiIyMDI2LTEwLTI5VDEyOjAwOjAwWiJ9
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Максимальное число элементов страницы
       schema:
         type: integer
-        format: int64
-    WebhookSignature:
-      name: X-Webhook-Signature
-      in: header
-      required: true
-      description: HMAC-SHA256 подписи уведомления в формате `t=<timestamp>,v1=<hex>`
-      schema:
-        type: string
+        minimum: 1
+        maximum: 100
+        default: 20
+        example: 20
   headers:
     Location:
-      description: Ссылка на созданный ресурс или результат операции
+      description: Абсолютный или относительный URL созданного ресурса
       schema:
         type: string
         format: uri-reference
+        example: /v1/signing-packages/5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
     ETag:
-      description: Версия ресурса в формате `"<version>"`
+      description: |
+        Версия ресурса в кавычках. Используется в `If-Match` и `If-None-Match`.
       schema:
         type: string
         example: '"3"'
     IdempotentReplayed:
-      description: Признак возврата сохранённого ответа по ключу идемпотентности
+      description: |
+        `true`, если ответ повторно возвращён по ранее обработанному
+        `Idempotency-Key`; в этом случае тело ответа сохранено без изменений.
       schema:
         type: boolean
         example: true
     ContentDisposition:
-      description: Имя файла для сохранения
+      description: Имя файла для сохранения содержимого документа
       schema:
         type: string
-        example: attachment; filename="document.pdf"
-    XContentSha256Response:
-      description: Контрольная сумма выданного содержимого в hex-формате
-      schema:
-        type: string
-        pattern: '^[a-f0-9]{64}$'
+        example: attachment; filename="Kreditnyj dogovor 458.pdf"
   responses:
     BadRequest:
       description: |
-        Некорректный запрос: синтаксическая ошибка, отсутствующее обязательное
-        поле, недопустимое значение или отсутствующий `Idempotency-Key`.
-        Возможные коды: `MALFORMED_REQUEST`, `VALIDATION_ERROR`,
-        `IDEMPOTENCY_KEY_REQUIRED`, `INVALID_PACKAGE_EXPIRY`,
-        `INVALID_PAGINATION_CURSOR`.
+        Некорректный запрос: нарушен синтаксис, отсутствует обязательный
+        заголовок, не совпала контрольная сумма или указан неверный код
+        подтверждения. Повтор без изменения запроса не поможет.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Problem'
-          examples:
-            validation:
-              summary: Ошибка валидации поля
-              value:
-                code: VALIDATION_ERROR
-                message: Запрос не прошёл валидацию
-                traceId: 7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
-                timestamp: '2026-10-29T12:00:00Z'
-                retryable: false
-                details:
-                  - field: documents[0].sha256
-                    code: INVALID_FORMAT
-                    message: Ожидается 64 шестнадцатеричных символа в нижнем регистре
+          example:
+            type: https://api.podpis-online.example/problems/validation-error
+            title: Ошибка валидации запроса
+            status: 400
+            code: VALIDATION_ERROR
+            detail: Поле documents[1].sha256 не соответствует формату SHA-256
+            traceId: req-20261029-000458
+            timestamp: '2026-10-29T12:00:00Z'
+            retryable: false
+            issues:
+              - field: documents[1].sha256
+                code: PATTERN_MISMATCH
+                message: Ожидается 64 символа в нижнем шестнадцатеричном регистре
     Unauthorized:
       description: |
-        Недействительный, истёкший или отсутствующий токен доступа.
-        Код: `UNAUTHENTICATED`.
+        Токен отсутствует, истёк или не прошёл проверку подписи. Требуется
+        получить новый токен; повтор с тем же токеном не поможет.
       headers:
         WWW-Authenticate:
-          description: Схема и параметры аутентификации
+          description: Схема и параметры авторизации
           schema:
             type: string
-            example: Bearer realm="podpis-online"
+            example: Bearer realm="podpis-online", error="invalid_token"
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Problem'
-          examples:
-            unauthenticated:
-              summary: Токен недействителен
-              value:
-                code: UNAUTHENTICATED
-                message: Требуется действительный токен доступа
-                traceId: 7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
-                timestamp: '2026-10-29T12:00:00Z'
-                retryable: false
+          example:
+            type: https://api.podpis-online.example/problems/unauthorized
+            title: Не пройдена аутентификация
+            status: 401
+            code: UNAUTHENTICATED
+            detail: Срок действия токена истёк
+            traceId: req-20261029-000459
+            timestamp: '2026-10-29T12:00:05Z'
+            retryable: false
     Forbidden:
       description: |
-        Недостаточно прав или объект принадлежит другому партнёру/клиенту.
-        Код: `ACCESS_DENIED`.
+        Аутентификация пройдена, но у инициатора нет прав на операцию с этим
+        объектом: другой партнёр, чужой клиент или недостаточный scope.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Problem'
-          examples:
-            accessDenied:
-              summary: Пакет принадлежит другому клиенту
-              value:
-                code: ACCESS_DENIED
-                message: Доступ к пакету запрещён
-                traceId: 7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
-                timestamp: '2026-10-29T12:00:00Z'
-                retryable: false
+          example:
+            type: https://api.podpis-online.example/problems/access-denied
+            title: Операция запрещена
+            status: 403
+            code: ACCESS_DENIED
+            detail: У токена отсутствует scope signing-packages:write
+            traceId: req-20261029-000460
+            timestamp: '2026-10-29T12:00:10Z'
+            retryable: false
     NotFound:
       description: |
-        Объект не найден. Коды: `PACKAGE_NOT_FOUND`, `DOCUMENT_NOT_FOUND`,
-        `SESSION_NOT_FOUND`. Отсутствие доступа к чужому объекту может
-        возвращаться как `404`, чтобы не раскрывать его существование.
+        Объект не найден или недоступен инициатору. Сервис не раскрывает
+        существование чужих пакетов, документов и сессий.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Problem'
-          examples:
-            packageNotFound:
-              summary: Пакет не найден
-              value:
-                code: PACKAGE_NOT_FOUND
-                message: Пакет с указанным идентификатором не найден
-                traceId: 7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
-                timestamp: '2026-10-29T12:00:00Z'
-                retryable: false
+          example:
+            type: https://api.podpis-online.example/problems/not-found
+            title: Объект не найден
+            status: 404
+            code: PACKAGE_NOT_FOUND
+            detail: Пакет с указанным идентификатором не найден
+            traceId: req-20261029-000461
+            timestamp: '2026-10-29T12:00:15Z'
+            retryable: false
     Conflict:
       description: |
-        Конфликт состояния или идемпотентности. Возможные коды:
-        `INVALID_STATE_TRANSITION`, `PACKAGE_NOT_EDITABLE`, `PACKAGE_EXPIRED`,
-        `DOCUMENT_NOT_SIGNED`, `ACTIVE_SESSION_EXISTS`, `SESSION_EXPIRED`,
-        `SESSION_BLOCKED`, `INVALID_SESSION_STATE`,
-        `DUPLICATE_EXTERNAL_REQUEST_ID`, `IDEMPOTENCY_KEY_REUSED`,
-        `IDEMPOTENCY_KEY_IN_PROGRESS`.
+        Конфликт состояния или повторной обработки: недопустимый переход,
+        активная сессия, повтор ключа идемпотентности, дублирование
+        `externalRequestId`, истёкший срок или заблокированная сессия.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Problem'
           examples:
-            invalidState:
+            invalidTransition:
               summary: Недопустимый переход состояния
               value:
+                type: https://api.podpis-online.example/problems/invalid-state
+                title: Недопустимый переход состояния
+                status: 409
                 code: INVALID_STATE_TRANSITION
-                message: Операция недопустима в текущем состоянии пакета
-                traceId: 7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
-                timestamp: '2026-10-29T12:00:00Z'
+                detail: 'Отмена невозможна: пакет находится в состоянии SIGNING'
+                traceId: req-20261029-000462
+                timestamp: '2026-10-29T12:00:20Z'
                 retryable: false
-                details:
-                  - field: status
-                    code: CURRENT_STATUS
-                    message: Текущее состояние — SIGNING; отмена после начала подписания невозможна
+            idempotencyReused:
+              summary: Ключ идемпотентности использован с другим телом
+              value:
+                type: https://api.podpis-online.example/problems/idempotency-reused
+                title: Конфликт ключа идемпотентности
+                status: 409
+                code: IDEMPOTENCY_KEY_REUSED
+                detail: Ключ уже использован с другим телом запроса
+                traceId: req-20261029-000463
+                timestamp: '2026-10-29T12:00:25Z'
+                retryable: false
     PreconditionFailed:
       description: |
-        Версия пакета в `If-Match` не совпадает с актуальной.
-        Код: `VERSION_MISMATCH`. Необходимо получить пакет повторно и повторить
-        операцию с актуальным `ETag`.
+        `If-Match` не совпал с текущей версией ресурса: пакет изменён другим
+        запросом. Требуется перечитать пакет и повторить операцию с актуальным
+        `ETag`.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Problem'
-          examples:
-            versionMismatch:
-              summary: Устаревшая версия пакета
-              value:
-                code: VERSION_MISMATCH
-                message: Версия пакета изменилась; обновите данные и повторите операцию
-                traceId: 7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
-                timestamp: '2026-10-29T12:00:00Z'
-                retryable: false
+          example:
+            type: https://api.podpis-online.example/problems/version-mismatch
+            title: Версия ресурса устарела
+            status: 412
+            code: VERSION_MISMATCH
+            detail: Ожидалась версия 4, текущая версия 5
+            traceId: req-20261029-000464
+            timestamp: '2026-10-29T12:00:30Z'
+            retryable: false
+    PreconditionRequired:
+      description: |
+        Для операции требуется заголовок `If-Match`: сервис не выполняет
+        изменение состояния без проверки версии ресурса.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://api.podpis-online.example/problems/precondition-required
+            title: Требуется проверка версии
+            status: 428
+            code: PRECONDITION_REQUIRED
+            detail: Заголовок If-Match обязателен для этой операции
+            traceId: req-20261029-000473
+            timestamp: '2026-10-29T12:01:15Z'
+            retryable: false
+    BadGateway:
+      description: |
+        Внешняя система (УЦ, криптографический компонент, провайдер
+        идентификации) вернула ошибку. Результат операции может быть
+        неизвестен; перед повтором следует запросить состояние пакета.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://api.podpis-online.example/problems/bad-gateway
+            title: Ошибка внешней системы
+            status: 502
+            code: SIGNING_PROVIDER_ERROR
+            detail: Криптографический компонент вернул ошибку 5xx
+            traceId: req-20261029-000474
+            timestamp: '2026-10-29T12:01:20Z'
+            retryable: true
     PayloadTooLarge:
       description: |
-        Размер документа или пакета превышает допустимый. Коды:
-        `PAYLOAD_TOO_LARGE` (один документ), `PACKAGE_SIZE_EXCEEDED` (пакет).
+        Размер содержимого или пакета превышает согласованный лимит. Требуется
+        уменьшить документ; повтор того же запроса не поможет.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Problem'
-          examples:
-            tooLarge:
-              summary: Превышен размер документа
-              value:
-                code: PAYLOAD_TOO_LARGE
-                message: Размер документа превышает 26 214 400 байт
-                traceId: 7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
-                timestamp: '2026-10-29T12:00:00Z'
-                retryable: false
+          example:
+            type: https://api.podpis-online.example/problems/payload-too-large
+            title: Превышен размер документа
+            status: 413
+            code: PAYLOAD_TOO_LARGE
+            detail: Размер документа 31457280 байт превышает лимит 26214400 байт
+            traceId: req-20261029-000465
+            timestamp: '2026-10-29T12:00:35Z'
+            retryable: false
     UnsupportedMediaType:
       description: |
-        Тип содержимого не поддерживается. Код: `UNSUPPORTED_MEDIA_TYPE`.
-        На первом этапе поддерживается только `application/pdf`.
+        Передан неподдерживаемый MIME-тип содержимого. На первом этапе
+        поддерживается только `application/pdf`.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Problem'
-          examples:
-            unsupportedMediaType:
-              summary: Передан не PDF
-              value:
-                code: UNSUPPORTED_MEDIA_TYPE
-                message: Поддерживается только application/pdf
-                traceId: 7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
-                timestamp: '2026-10-29T12:00:00Z'
-                retryable: false
+          example:
+            type: https://api.podpis-online.example/problems/unsupported-media-type
+            title: Неподдерживаемый тип содержимого
+            status: 415
+            code: UNSUPPORTED_MEDIA_TYPE
+            detail: Ожидается application/pdf, получен application/msword
+            traceId: req-20261029-000466
+            timestamp: '2026-10-29T12:00:40Z'
+            retryable: false
     UnprocessableEntity:
       description: |
-        Семантическая ошибка, которую можно устранить изменением запроса или
-        состояния. Возможные коды: `DOCUMENT_LIMIT_EXCEEDED`,
-        `UNSUPPORTED_DOCUMENT_FORMAT`, `EMPTY_DOCUMENT`, `CHECKSUM_MISMATCH`,
-        `DOCUMENTS_NOT_READY`, `INVALID_CONFIRMATION_CODE`,
-        `CLIENT_CERTIFICATE_NOT_FOUND`, `CLIENT_CERTIFICATE_REVOKED`,
-        `CLIENT_CERTIFICATE_EXPIRED`.
+        Запрос синтаксически корректен, но нарушает бизнес-правила: лимиты
+        состава, готовность документов, состояние сертификата клиента.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Problem'
           examples:
-            checksum:
-              summary: Контрольная сумма не совпала
+            documentsNotReady:
+              summary: Не все документы готовы к отправке
               value:
-                code: CHECKSUM_MISMATCH
-                message: Контрольная сумма содержимого не совпадает с метаданными
-                traceId: 7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
-                timestamp: '2026-10-29T12:00:00Z'
+                type: https://api.podpis-online.example/problems/documents-not-ready
+                title: Документы не готовы
+                status: 422
+                code: DOCUMENTS_NOT_READY
+                detail: Два документа не загружены
+                traceId: req-20261029-000467
+                timestamp: '2026-10-29T12:00:45Z'
                 retryable: false
-                details:
-                  - field: sha256
-                    code: MISMATCH
-                    message: Ожидалась сумма 9f2c...5f60, получена 0a1b...9c2d
+                issues:
+                  - field: documents[1]
+                    code: PENDING_UPLOAD
+                    message: Содержимое документа не загружено
+            certificateRevoked:
+              summary: Сертификат клиента отозван
+              value:
+                type: https://api.podpis-online.example/problems/certificate-revoked
+                title: Сертификат непригоден
+                status: 422
+                code: CLIENT_CERTIFICATE_REVOKED
+                detail: Сертификат клиента отозван 20.10.2026
+                traceId: req-20261029-000468
+                timestamp: '2026-10-29T12:00:50Z'
+                retryable: false
     TooManyRequests:
       description: |
-        Превышен лимит запросов. Код: `RATE_LIMIT_EXCEEDED`. Необходимо
-        повторить запрос после `Retry-After`.
+        Превышен согласованный лимит частоты запросов. Повтор возможен после
+        задержки, указанной в `Retry-After`.
       headers:
         Retry-After:
-          description: Время ожидания перед повтором, секунды
+          description: Задержка перед повтором в секундах
           schema:
             type: integer
+            minimum: 1
             example: 30
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Problem'
-          examples:
-            rateLimit:
-              summary: Превышен лимит
-              value:
-                code: RATE_LIMIT_EXCEEDED
-                message: Превышен лимит запросов; повторите позже
-                traceId: 7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
-                timestamp: '2026-10-29T12:00:00Z'
-                retryable: true
+          example:
+            type: https://api.podpis-online.example/problems/rate-limit
+            title: Превышен лимит запросов
+            status: 429
+            code: RATE_LIMIT_EXCEEDED
+            detail: Превышено 600 запросов в минуту для client_id
+            traceId: req-20261029-000469
+            timestamp: '2026-10-29T12:00:55Z'
+            retryable: true
     InternalServerError:
       description: |
-        Внутренняя ошибка сервиса. Код: `INTERNAL_ERROR`. Для идемпотентных
-        запросов и запросов чтения допускается ограниченный повтор с
-        экспоненциальной задержкой.
+        Внутренняя ошибка сервиса. Запрос может быть повторён с тем же
+        `Idempotency-Key`; повторная бизнес-операция при этом не создаётся.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Problem'
-          examples:
-            internal:
-              summary: Внутренняя ошибка
-              value:
-                code: INTERNAL_ERROR
-                message: Внутренняя ошибка сервиса
-                traceId: 7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
-                timestamp: '2026-10-29T12:00:00Z'
-                retryable: true
-    BadGateway:
+          example:
+            type: https://api.podpis-online.example/problems/internal-error
+            title: Внутренняя ошибка
+            status: 500
+            code: INTERNAL_ERROR
+            detail: Непредвиденная ошибка обработки запроса
+            traceId: req-20261029-000470
+            timestamp: '2026-10-29T12:01:00Z'
+            retryable: true
+    GatewayTimeout:
       description: |
-        Ошибка внешней зависимости. Коды: `SIGNING_PROVIDER_ERROR`,
-        `IDENTITY_PROVIDER_ERROR`. При ошибке криптографического компонента
-        результат подписания может быть неизвестен: необходимо запросить
-        состояние пакета, а не повторять подтверждение автоматически.
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Problem'
-          examples:
-            signingProvider:
-              summary: Ошибка криптографического компонента
-              value:
-                code: SIGNING_PROVIDER_ERROR
-                message: Криптографический компонент вернул ошибку; результат операции неизвестен
-                traceId: 7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
-                timestamp: '2026-10-29T12:00:00Z'
-                retryable: false
-    ServiceUnavailable:
-      description: |
-        Сервис временно недоступен. Код: `SERVICE_UNAVAILABLE`. Необходимо
-        повторить запрос после `Retry-After`.
+        Криптографический компонент или УЦ не ответил за отведённое время.
+        Результат операции неизвестен: необходимо запросить состояние пакета,
+        а не повторять подтверждение вслепую.
       headers:
         Retry-After:
-          description: Время ожидания перед повтором, секунды
+          description: Рекомендуемая задержка перед проверкой состояния
           schema:
             type: integer
+            minimum: 1
             example: 60
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Problem'
-          examples:
-            unavailable:
-              summary: Сервис недоступен
-              value:
-                code: SERVICE_UNAVAILABLE
-                message: Сервис временно недоступен
-                traceId: 7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
-                timestamp: '2026-10-29T12:00:00Z'
-                retryable: true
-    GatewayTimeout:
+          example:
+            type: https://api.podpis-online.example/problems/gateway-timeout
+            title: Тайм-аут внешней системы
+            status: 504
+            code: SIGNING_PROVIDER_TIMEOUT
+            detail: УЦ не ответил за 30 секунд; результат подписания неизвестен
+            traceId: req-20261029-000471
+            timestamp: '2026-10-29T12:01:05Z'
+            retryable: true
+    ServiceUnavailable:
       description: |
-        Тайм-аут внешней зависимости. Код: `SIGNING_PROVIDER_TIMEOUT`.
-        Результат подписания неизвестен; необходимо запросить состояние пакета.
+        Сервис или его зависимость временно недоступны. Операция не выполнена;
+        повтор возможен после задержки из `Retry-After`.
+      headers:
+        Retry-After:
+          description: Задержка перед повтором в секундах
+          schema:
+            type: integer
+            minimum: 1
+            example: 30
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Problem'
-          examples:
-            timeout:
-              summary: Тайм-аут криптографического компонента
-              value:
-                code: SIGNING_PROVIDER_TIMEOUT
-                message: Криптографический компонент не ответил вовремя; результат неизвестен
-                traceId: 7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
-                timestamp: '2026-10-29T12:00:00Z'
-                retryable: false
+          example:
+            type: https://api.podpis-online.example/problems/service-unavailable
+            title: Сервис временно недоступен
+            status: 503
+            code: SERVICE_UNAVAILABLE
+            detail: Криптографический компонент на плановом обслуживании
+            traceId: req-20261029-000472
+            timestamp: '2026-10-29T12:01:10Z'
+            retryable: true
   schemas:
     PackageStatus:
       type: string
-      description: Состояние пакета документов
+      description: |
+        Состояние пакета документов. Терминальные состояния: `SIGNED`,
+        `PARTIALLY_SIGNED`, `REJECTED`, `CANCELLED`, `EXPIRED`, `FAILED`.
       enum:
         - DRAFT
         - PENDING_CONFIRMATION
@@ -1889,252 +1577,88 @@ components:
         - CANCELLED
         - EXPIRED
         - FAILED
-      x-enum-descriptions:
-        DRAFT: Пакет создан; состав и содержимое можно изменять
-        PENDING_CONFIRMATION: Состав зафиксирован; ожидается подтверждение клиента
-        SIGNING: Подписание выполняется; результат может быть ещё неизвестен
-        SIGNED: Все документы подписаны
-        PARTIALLY_SIGNED: Часть документов подписана, часть завершилась ошибкой
-        REJECTED: Клиент отказался от подписания
-        CANCELLED: Пакет отменён партнёром до подтверждения
-        EXPIRED: Истёк срок ожидания подтверждения
-        FAILED: Ни один документ не подписан; обработка завершилась ошибкой
-      example: PENDING_CONFIRMATION
+      example: SIGNED
     DocumentStatus:
       type: string
-      description: Состояние документа в пакете
+      description: |
+        Состояние отдельного документа. `SIGNED` и `FAILED` — терминальные;
+        при частичном успехе пакета статусы документов различаются.
       enum:
-        - PENDING
+        - PENDING_UPLOAD
+        - UPLOADED
+        - READY
         - SIGNING
         - SIGNED
         - FAILED
-      x-enum-descriptions:
-        PENDING: Документ не подписан; ожидает обработки или остаётся неподписанным
-        SIGNING: Для документа выполняется криптографическая операция
-        SIGNED: Документ подписан, подпись сохранена
-        FAILED: Подписание документа завершилось ошибкой
       example: SIGNED
     SessionStatus:
       type: string
-      description: Состояние сессии подтверждения
+      description: Состояние сессии подтверждения подписания
       enum:
-        - CREATED
+        - PENDING
         - CONFIRMED
-        - COMPLETED
         - REJECTED
         - EXPIRED
-        - BLOCKED
-      x-enum-descriptions:
-        CREATED: Вызов подтверждения сформирован; ожидается код
-        CONFIRMED: Клиент подтвердил; подписание выполняется
-        COMPLETED: Обработка завершена; итог доступен в результате пакета
-        REJECTED: Клиент отказался от подписания
-        EXPIRED: Истёк срок действия вызова подтверждения
-        BLOCKED: Исчерпаны попытки ввода кода; требуется новая сессия
-      example: CREATED
+        - FAILED
+      example: CONFIRMED
     ConfirmationMethod:
       type: string
-      description: Способ подтверждения намерения клиента
+      description: |
+        Канал подтверждения намерения клиента. `SMS_OTP` — одноразовый код по
+        SMS, `PUSH_APP` — подтверждение в приложении партнёра. Целевой механизм
+        требует согласования (OQ-01).
       enum:
         - SMS_OTP
         - PUSH_APP
-      x-enum-descriptions:
-        SMS_OTP: Одноразовый код, доставленный на телефон клиента
-        PUSH_APP: Подтверждение в приложении партнёра; код формируется приложением после локальной аутентификации
       example: SMS_OTP
-    PackageSummary:
+    SignatureType:
+      type: string
+      description: Вид электронной подписи, применяемый к документам пакета
+      enum:
+        - UKEP
+      example: UKEP
+    DocumentMetadata:
       type: object
-      description: Агрегированные показатели пакета
+      description: Описание документа при создании пакета
       required:
-        - documentsTotal
-        - documentsSigned
-        - documentsFailed
-        - documentsPending
-        - totalSizeBytes
+        - fileName
+        - mimeType
+        - sizeBytes
+        - sha256
       properties:
-        documentsTotal:
-          type: integer
-          minimum: 1
-          maximum: 20
-          description: Общее количество документов в пакете
-          example: 2
-        documentsSigned:
-          type: integer
-          minimum: 0
-          description: Количество успешно подписанных документов
-          example: 2
-        documentsFailed:
-          type: integer
-          minimum: 0
-          description: Количество документов с ошибкой подписания
-          example: 0
-        documentsPending:
-          type: integer
-          minimum: 0
-          description: Количество документов, ещё не завершивших обработку
-          example: 0
-        totalSizeBytes:
-          type: integer
-          format: int64
-          minimum: 1
-          maximum: 104857600
-          description: Суммарный размер документов в байтах
-          example: 344064
-    CertificateInfo:
-      type: object
-      description: Сведения о сертификате ключа проверки электронной подписи
-      required:
-        - certificateId
-        - serialNumber
-        - subject
-        - issuer
-        - validFrom
-        - validTo
-      properties:
-        certificateId:
-          type: string
-          maxLength: 128
-          description: Идентификатор сертификата в сервисе или УЦ
-          example: cert-2026-000123
-        serialNumber:
-          type: string
-          maxLength: 128
-          description: Серийный номер сертификата
-          example: 04A7B9C1D2E3F40506
-        subject:
-          type: string
-          maxLength: 1024
-          description: Субъект сертификата
-          example: CN=Иванов Иван Иванович, INN=770912345678, O=ООО "Банк Пример"
-        issuer:
-          type: string
-          maxLength: 1024
-          description: Издатель сертификата
-          example: CN=УЦ Пример, O=ООО "УЦ Пример"
-        validFrom:
-          type: string
-          format: date-time
-          description: Начало срока действия сертификата
-          example: '2026-01-15T00:00:00Z'
-        validTo:
-          type: string
-          format: date-time
-          description: Окончание срока действия сертификата
-          example: '2027-01-15T00:00:00Z'
-        thumbprint:
-          type: string
-          maxLength: 128
-          description: Отпечаток сертификата
-          example: 3a7d1e5f9b2c4a6d8e0f1a3b5c7d9e1f2a4b6c8d0e1f3a5b7c9d1e3f5a7b9c1d
-    DocumentSignature:
-      type: object
-      description: Данные сформированной электронной подписи документа
-      required:
-        - signatureId
-        - signatureType
-        - signatureFormat
-        - signedAt
-        - signedContentSha256
-        - certificate
-        - verificationStatus
-      properties:
-        signatureId:
-          type: string
-          format: uuid
-          description: Идентификатор подписи
-          example: e5f6a7b8-c9d0-4e1f-8a2b-3c4d5e6f7081
-        signatureType:
-          type: string
-          enum:
-            - UKEP
-          description: Вид электронной подписи
-          example: UKEP
-        signatureFormat:
+        partnerDocumentId:
           type: string
           maxLength: 64
           description: |
-            Формат подписи. Конкретный формат и способ встраивания в PDF
-            согласуются с УЦ и криптографическим компонентом; значение
-            `PAdES-BES` приведено как рабочее допущение.
-          example: PAdES-BES
-        signedAt:
+            Идентификатор документа в системе партнёра. Уникален в пределах
+            пакета; используется для сопоставления результата.
+          example: DOC-458-01
+        fileName:
           type: string
-          format: date-time
-          description: Время формирования подписи
-          example: '2026-10-29T12:07:12Z'
-        signedContentSha256:
-          type: string
-          pattern: '^[a-f0-9]{64}$'
-          description: Контрольная сумма подписанного содержимого
-          example: c8e5a2f9d6b34071f2a5c8e1b4d7a0f32639485b7c0e1d4f6a9b2c5d8e1f4073
-        verificationStatus:
+          maxLength: 255
+          description: Имя файла для отображения клиенту; сервер не использует его как путь
+          example: Кредитный договор № 458.pdf
+        mimeType:
           type: string
           enum:
-            - VALID
-            - INVALID
-            - UNKNOWN
-          description: |
-            Результат проверки подписи сервисом. `UNKNOWN` означает, что
-            проверка ещё не завершена или недоступна; это не подтверждение
-            действительности подписи.
-          example: VALID
-        certificate:
-          $ref: '#/components/schemas/CertificateInfo'
-    SignedContent:
-      type: object
-      description: Сведения о подписанном файле, доступном для скачивания
-      required:
-        - sha256
-        - sizeBytes
-        - availableUntil
-        - downloadPath
-      properties:
-        sha256:
-          type: string
-          pattern: '^[a-f0-9]{64}$'
-          description: Контрольная сумма подписанного файла
-          example: c8e5a2f9d6b34071f2a5c8e1b4d7a0f32639485b7c0e1d4f6a9b2c5d8e1f4073
+            - application/pdf
+          description: MIME-тип содержимого документа
+          example: application/pdf
         sizeBytes:
           type: integer
           format: int64
           minimum: 1
-          description: Размер подписанного файла в байтах
-          example: 312450
-        availableUntil:
+          maximum: 26214400
+          description: Ожидаемый размер содержимого в байтах
+          example: 245760
+        sha256:
           type: string
-          format: date-time
-          description: Срок доступности файла; конкретное значение определяется политикой хранения (OQ-05)
-          example: '2031-10-29T12:07:30Z'
-        downloadPath:
-          type: string
-          maxLength: 2048
-          description: Путь от корня хоста API для скачивания подписанного файла
-          example: /v1/signing-packages/5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01/documents/a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d/content?variant=SIGNED
-    DocumentError:
-      type: object
-      description: Ошибка обработки отдельного документа
-      required:
-        - code
-        - message
-        - retryable
-      properties:
-        code:
-          type: string
-          maxLength: 64
-          description: Машиночитаемый код ошибки документа
-          example: SIGNING_PROVIDER_ERROR
-        message:
-          type: string
-          maxLength: 1024
-          description: Описание ошибки для журнала и поддержки
-          example: Криптографический компонент не сформировал подпись
-        retryable:
-          type: boolean
-          description: Допускает ли ошибка повторную обработку документа
-          example: false
+          pattern: '^[a-f0-9]{64}$'
+          description: Ожидаемая контрольная сумма содержимого
+          example: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
     Document:
       type: object
-      description: Документ в составе пакета
+      description: Документ в составе пакета и результат его обработки
       required:
         - documentId
         - sequence
@@ -2147,13 +1671,13 @@ components:
         documentId:
           type: string
           format: uuid
-          description: Идентификатор документа
+          description: Идентификатор документа, присвоенный сервисом
           example: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
         partnerDocumentId:
           type: string
           maxLength: 64
           nullable: true
-          description: Идентификатор документа в системе партнёра; уникален в пределах пакета
+          description: Идентификатор документа в системе партнёра
           example: DOC-458-01
         sequence:
           type: integer
@@ -2164,7 +1688,7 @@ components:
         fileName:
           type: string
           maxLength: 255
-          description: Имя файла для отображения; сервер не использует его как путь
+          description: Имя файла для отображения
           example: Кредитный договор № 458.pdf
         mimeType:
           type: string
@@ -2190,26 +1714,139 @@ components:
           type: string
           format: date-time
           nullable: true
-          description: Время загрузки содержимого
+          description: Время загрузки содержимого; null, если содержимое не загружено
           example: '2026-10-29T12:00:40Z'
         signedAt:
           type: string
           format: date-time
           nullable: true
-          description: Время успешного подписания
+          description: Время успешного подписания; null, если документ не подписан
           example: '2026-10-29T12:07:12Z'
         signature:
-          description: Данные подписи; отсутствует, если документ не подписан
           allOf:
             - $ref: '#/components/schemas/DocumentSignature'
-        signedContent:
-          description: Сведения о подписанном файле; отсутствует, если документ не подписан
-          allOf:
-            - $ref: '#/components/schemas/SignedContent'
+          description: Данные подписи; отсутствуют, если документ не подписан
         error:
-          description: Ошибка обработки документа; отсутствует, если ошибки нет
           allOf:
             - $ref: '#/components/schemas/DocumentError'
+          description: Ошибка обработки документа; отсутствует, если ошибки нет
+    DocumentSignature:
+      type: object
+      description: Данные электронной подписи документа
+      required:
+        - signatureType
+        - signatureFormat
+        - signedAt
+        - certificate
+        - signedContentSha256
+      properties:
+        signatureType:
+          $ref: '#/components/schemas/SignatureType'
+        signatureFormat:
+          type: string
+          description: |
+            Формат подписи. `PAdES-BES` — подпись встроена в PDF. Конкретный
+            формат требует согласования с УЦ (OQ-02).
+          enum:
+            - PAdES-BES
+            - CAdES-BES
+          example: PAdES-BES
+        signedAt:
+          type: string
+          format: date-time
+          description: Время формирования подписи
+          example: '2026-10-29T12:07:12Z'
+        certificate:
+          $ref: '#/components/schemas/CertificateInfo'
+        signedContentSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+          description: Контрольная сумма подписанного содержимого
+          example: 7d1e2f3a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f
+    CertificateInfo:
+      type: object
+      description: Сведения о сертификате ключа проверки электронной подписи
+      required:
+        - serialNumber
+        - subject
+        - issuer
+        - validFrom
+        - validTo
+      properties:
+        serialNumber:
+          type: string
+          description: Серийный номер сертификата
+          example: 01A2B3C4D5E6F7089A
+        subject:
+          type: string
+          description: Владелец сертификата в формате RFC 4514
+          example: CN=Иванов Иван Иванович, O=ООО «Клиент»
+        issuer:
+          type: string
+          description: Издатель сертификата в формате RFC 4514
+          example: CN=УЦ ПодписьОнлайн, O=АО «УЦ»
+        validFrom:
+          type: string
+          format: date-time
+          description: Начало срока действия сертификата
+          example: '2025-12-01T00:00:00Z'
+        validTo:
+          type: string
+          format: date-time
+          description: Окончание срока действия сертификата
+          example: '2026-12-01T00:00:00Z'
+    DocumentError:
+      type: object
+      description: Ошибка обработки отдельного документа
+      required:
+        - code
+        - message
+        - retryable
+      properties:
+        code:
+          type: string
+          description: Код ошибки из каталога `x-error-catalog`
+          example: SIGNING_PROVIDER_TIMEOUT
+        message:
+          type: string
+          description: Описание ошибки для журнала и поддержки
+          example: Криптографический компонент не ответил за отведённое время
+        retryable:
+          type: boolean
+          description: Признак допустимости повторной обработки документа
+          example: true
+        occurredAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Время возникновения ошибки
+          example: '2026-10-29T12:07:30Z'
+    PackageSummary:
+      type: object
+      description: Агрегированные счётчики обработки пакета
+      required:
+        - documentsTotal
+        - documentsSigned
+        - documentsFailed
+      properties:
+        documentsTotal:
+          type: integer
+          minimum: 1
+          maximum: 20
+          description: Общее число документов в пакете
+          example: 2
+        documentsSigned:
+          type: integer
+          minimum: 0
+          maximum: 20
+          description: Число успешно подписанных документов
+          example: 2
+        documentsFailed:
+          type: integer
+          minimum: 0
+          maximum: 20
+          description: Число документов, обработка которых завершилась ошибкой
+          example: 0
     SigningPackage:
       type: object
       description: Пакет документов и его текущее состояние
@@ -2230,15 +1867,10 @@ components:
           format: uuid
           description: Идентификатор пакета
           example: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
-        partnerId:
-          type: string
-          maxLength: 128
-          description: Идентификатор партнёра; не возвращается клиенту
-          example: partner-bank-01
         externalRequestId:
           type: string
           maxLength: 64
-          description: Внешний идентификатор запроса партнёра; не возвращается клиенту
+          description: Внешний идентификатор запроса партнёра
           example: BNK-2026-000458
         clientId:
           type: string
@@ -2260,20 +1892,12 @@ components:
           description: Пояснение причины текущего состояния (отказ, отмена, ошибка)
           example: Клиент не согласен с условиями документа
         signatureType:
-          type: string
-          enum:
-            - UKEP
-          description: Вид электронной подписи, применяемый к пакету
-          example: UKEP
-        documents:
-          type: array
-          minItems: 1
-          maxItems: 20
-          description: Документы пакета в порядке подписания
-          items:
-            $ref: '#/components/schemas/Document'
-        summary:
-          $ref: '#/components/schemas/PackageSummary'
+          $ref: '#/components/schemas/SignatureType'
+        version:
+          type: integer
+          minimum: 1
+          description: Версия пакета; используется в `ETag` и `If-Match`
+          example: 3
         createdAt:
           type: string
           format: date-time
@@ -2302,11 +1926,6 @@ components:
           nullable: true
           description: Время достижения терминального состояния
           example: '2026-10-29T12:07:30Z'
-        version:
-          type: integer
-          minimum: 1
-          description: Версия пакета; используется в ETag и If-Match
-          example: 3
         activeSessionId:
           type: string
           format: uuid
@@ -2317,6 +1936,15 @@ components:
           type: boolean
           description: Признак того, что партнёр получает callback-уведомления
           example: true
+        summary:
+          $ref: '#/components/schemas/PackageSummary'
+        documents:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: Документы пакета в порядке подписания
+          items:
+            $ref: '#/components/schemas/Document'
         partnerMetadata:
           type: object
           additionalProperties:
@@ -2324,49 +1952,11 @@ components:
             maxLength: 500
           maxProperties: 20
           description: |
-            Дополнительные атрибуты партнёра для корреляции. Не должны содержать
-            персональные данные; клиенту не возвращаются.
+            Дополнительные атрибуты партнёра для корреляции. Не должны
+            содержать персональные данные.
           example:
             branchId: MSK-12
             productCode: CREDIT-2026
-    SigningResult:
-      type: object
-      description: Результат обработки пакета и документов
-      required:
-        - packageId
-        - status
-        - signatureType
-        - summary
-        - documents
-      properties:
-        packageId:
-          type: string
-          format: uuid
-          description: Идентификатор пакета
-          example: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
-        status:
-          $ref: '#/components/schemas/PackageStatus'
-        signatureType:
-          type: string
-          enum:
-            - UKEP
-          description: Вид электронной подписи
-          example: UKEP
-        completedAt:
-          type: string
-          format: date-time
-          nullable: true
-          description: Время завершения обработки; null, если обработка не завершена
-          example: '2026-10-29T12:07:30Z'
-        summary:
-          $ref: '#/components/schemas/PackageSummary'
-        documents:
-          type: array
-          minItems: 1
-          maxItems: 20
-          description: Результат по каждому документу
-          items:
-            $ref: '#/components/schemas/Document'
     SigningPackageSummary:
       type: object
       description: Краткие сведения о пакете для списка
@@ -2384,52 +1974,65 @@ components:
         packageId:
           type: string
           format: uuid
+          description: Идентификатор пакета
           example: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
         externalRequestId:
           type: string
           maxLength: 64
+          description: Внешний идентификатор запроса партнёра
           example: BNK-2026-000458
         clientId:
           type: string
           maxLength: 128
+          description: Идентификатор клиента в системе партнёра
           example: client-8f3a2c
         title:
           type: string
           maxLength: 255
           nullable: true
+          description: Отображаемое название пакета
           example: Кредитный пакет № 458
         status:
           $ref: '#/components/schemas/PackageStatus'
         createdAt:
           type: string
           format: date-time
+          description: Время создания пакета
           example: '2026-10-29T12:00:00Z'
         updatedAt:
           type: string
           format: date-time
+          description: Время последнего изменения пакета
           example: '2026-10-29T12:07:30Z'
         submittedAt:
           type: string
           format: date-time
           nullable: true
+          description: Время отправки пакета на подписание
           example: '2026-10-29T12:01:10Z'
         completedAt:
           type: string
           format: date-time
           nullable: true
+          description: Время достижения терминального состояния
           example: '2026-10-29T12:07:30Z'
         documentsTotal:
           type: integer
           minimum: 1
           maximum: 20
+          description: Общее число документов в пакете
           example: 2
         documentsSigned:
           type: integer
           minimum: 0
+          maximum: 20
+          description: Число подписанных документов
           example: 2
         documentsFailed:
           type: integer
           minimum: 0
+          maximum: 20
+          description: Число документов с ошибкой
           example: 0
     SigningPackagePage:
       type: object
@@ -2439,6 +2042,7 @@ components:
       properties:
         items:
           type: array
+          description: Пакеты текущей страницы
           items:
             $ref: '#/components/schemas/SigningPackageSummary'
         nextCursor:
@@ -2446,44 +2050,7 @@ components:
           maxLength: 512
           nullable: true
           description: Курсор следующей страницы; null, если страниц больше нет
-          example: eyJjcmVhdGVkQXQiOiIyMDI2LTEwLTI5VDEyOjAwOjAwWiIsImlkIjoiNWYwYzJkN2UifQ
-    DocumentMetadata:
-      type: object
-      description: Метаданные документа при создании пакета
-      required:
-        - fileName
-        - mimeType
-        - sizeBytes
-        - sha256
-      properties:
-        partnerDocumentId:
-          type: string
-          maxLength: 64
-          description: Идентификатор документа в системе партнёра; уникален в пределах пакета
-          example: DOC-458-01
-        fileName:
-          type: string
-          maxLength: 255
-          description: Имя файла, отображаемое клиенту; сервер не использует его как путь
-          example: Кредитный договор № 458.pdf
-        mimeType:
-          type: string
-          enum:
-            - application/pdf
-          description: MIME-тип содержимого; на первом этапе поддерживается только PDF
-          example: application/pdf
-        sizeBytes:
-          type: integer
-          format: int64
-          minimum: 1
-          maximum: 26214400
-          description: Ожидаемый размер содержимого в байтах
-          example: 245760
-        sha256:
-          type: string
-          pattern: '^[a-f0-9]{64}$'
-          description: Ожидаемая контрольная сумма содержимого
-          example: 9f2c4a7e1b3d5f6089a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60
+          example: eyJjcmVhdGVkQXQiOiIyMDI2LTEwLTI5VDEyOjAwOjAwWiJ9
     CreateSigningPackageRequest:
       type: object
       description: Запрос на создание пакета документов
@@ -2497,7 +2064,9 @@ components:
           minLength: 1
           maxLength: 64
           pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$'
-          description: Внешний идентификатор запроса; уникален в пределах партнёра
+          description: |
+            Внешний идентификатор запроса; уникален в пределах партнёра.
+            Повторное использование завершается `409 DUPLICATE_EXTERNAL_REQUEST_ID`.
           example: BNK-2026-000458
         clientId:
           type: string
@@ -2519,8 +2088,7 @@ components:
           maxItems: 20
           description: |
             Состав пакета. Порядок элементов определяет порядок документов.
-            После создания состав не изменяется; для изменения пакет отменяется
-            и создаётся заново.
+            После создания состав не изменяется.
           items:
             $ref: '#/components/schemas/DocumentMetadata'
         callbackUrl:
@@ -2547,80 +2115,76 @@ components:
             maxLength: 500
           maxProperties: 20
           description: |
-            Дополнительные атрибуты партнёра для корреляции. Не должны содержать
-            персональные данные.
+            Дополнительные атрибуты партнёра для корреляции. Не должны
+            содержать персональные данные.
           example:
             branchId: MSK-12
             productCode: CREDIT-2026
-    CancelSigningPackageRequest:
+    SubmitSigningPackageRequest:
       type: object
-      description: Запрос на отмену пакета
-      required:
-        - reasonCode
+      description: Необязательные параметры отправки пакета на подписание
       properties:
-        reasonCode:
-          type: string
-          enum:
-            - PARTNER_REQUEST
-            - DUPLICATE_REQUEST
-            - CLIENT_REQUEST
-            - OTHER
-          description: Причина отмены
-          example: PARTNER_REQUEST
         comment:
           type: string
           maxLength: 500
-          description: Комментарий к отмене
-          example: Пакет сформирован повторно в новой операции
-    CreateSigningSessionRequest:
+          description: Комментарий партнёра для журнала операций
+          example: Пакет сформирован для клиента branch MSK-12
+    CancelSigningPackageRequest:
       type: object
-      description: Запрос на инициирование подписания клиентом
+      description: Запрос на отмену пакета документов
       required:
-        - confirmationMethod
+        - reason
       properties:
-        confirmationMethod:
-          $ref: '#/components/schemas/ConfirmationMethod'
-        deviceId:
+        reason:
           type: string
-          maxLength: 128
-          description: |
-            Идентификатор устройства клиента для адресации push-подтверждения.
-            Не является персональными данными и не должен содержать номер
-            телефона или иные прямые идентификаторы.
-          example: device-7c1e9a
-    ConfirmationChallenge:
+          minLength: 1
+          maxLength: 500
+          description: Причина отмены; сохраняется в `statusReason` пакета
+          example: Клиент отказался от сделки до подтверждения
+    SigningResult:
       type: object
-      description: Параметры вызова подтверждения
+      description: |
+        Результат обработки пакета. Для незавершённых пакетов содержит текущее
+        состояние; `resultUnknown = true` означает, что результат подписания
+        ещё не подтверждён криптографическим компонентом.
       required:
-        - challengeId
-        - method
-        - destinationMasked
-        - expiresAt
-        - attemptsRemaining
+        - packageId
+        - status
+        - signatureType
+        - summary
+        - documents
+        - resultUnknown
       properties:
-        challengeId:
+        packageId:
           type: string
           format: uuid
-          description: Идентификатор вызова подтверждения
-          example: d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f70
-        method:
-          $ref: '#/components/schemas/ConfirmationMethod'
-        destinationMasked:
-          type: string
-          maxLength: 64
-          description: Маскированный получатель кода или push-уведомления
-          example: '+7 *** *** 45-67'
-        expiresAt:
+          description: Идентификатор пакета
+          example: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
+        status:
+          $ref: '#/components/schemas/PackageStatus'
+        signatureType:
+          $ref: '#/components/schemas/SignatureType'
+        completedAt:
           type: string
           format: date-time
-          description: Срок действия вызова подтверждения
-          example: '2026-10-29T12:15:00Z'
-        attemptsRemaining:
-          type: integer
-          minimum: 0
-          maximum: 3
-          description: Количество оставшихся попыток ввода кода
-          example: 3
+          nullable: true
+          description: Время завершения обработки; null, если обработка не завершена
+          example: '2026-10-29T12:07:30Z'
+        resultUnknown:
+          type: boolean
+          description: |
+            Признак того, что результат подписания неизвестен из-за сбоя
+            взаимодействия с криптографическим компонентом.
+          example: false
+        summary:
+          $ref: '#/components/schemas/PackageSummary'
+        documents:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: Результат по каждому документу пакета
+          items:
+            $ref: '#/components/schemas/Document'
     SigningSession:
       type: object
       description: Сессия подтверждения подписания
@@ -2637,12 +2201,12 @@ components:
         sessionId:
           type: string
           format: uuid
-          description: Идентификатор сессии
+          description: Идентификатор сессии подтверждения
           example: c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f
         packageId:
           type: string
           format: uuid
-          description: Идентификатор пакета
+          description: Идентификатор подписываемого пакета
           example: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
         status:
           $ref: '#/components/schemas/SessionStatus'
@@ -2651,19 +2215,19 @@ components:
         confirmationMethod:
           $ref: '#/components/schemas/ConfirmationMethod'
         challenge:
-          description: Параметры вызова подтверждения; отсутствуют после подтверждения или завершения сессии
           allOf:
             - $ref: '#/components/schemas/ConfirmationChallenge'
+          description: Параметры вызова подтверждения; отсутствуют после завершения сессии
         createdAt:
           type: string
           format: date-time
           description: Время создания сессии
-          example: '2026-10-29T12:00:00Z'
+          example: '2026-10-29T12:02:00Z'
         expiresAt:
           type: string
           format: date-time
           description: Срок действия сессии
-          example: '2026-10-29T12:15:00Z'
+          example: '2026-10-29T12:17:00Z'
         confirmedAt:
           type: string
           format: date-time
@@ -2679,275 +2243,292 @@ components:
         version:
           type: integer
           minimum: 1
-          description: Версия сессии; используется в ETag
+          description: Версия сессии; используется в `ETag`
           example: 2
-    ConfirmSigningSessionRequest:
+    ConfirmationChallenge:
       type: object
-      description: Запрос на подтверждение подписания
+      description: Параметры вызова подтверждения, выданного клиенту
       required:
         - challengeId
-        - code
+        - method
+        - recipientMasked
+        - attemptsLeft
+        - expiresAt
       properties:
         challengeId:
           type: string
-          format: uuid
-          description: Идентификатор вызова подтверждения из сессии
-          example: d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f70
-        code:
+          maxLength: 64
+          description: Идентификатор вызова подтверждения для последующего `confirm`
+          example: ch-9f8e7d6c5b4a
+        method:
+          $ref: '#/components/schemas/ConfirmationMethod'
+        recipientMasked:
           type: string
-          minLength: 4
-          maxLength: 12
-          pattern: '^[0-9A-Za-z-]{4,12}$'
+          maxLength: 64
+          description: Маскированный получатель кода или устройства
+          example: '+7 *** ***-12-34'
+        attemptsLeft:
+          type: integer
+          minimum: 0
+          maximum: 3
+          description: Остаток попыток ввода кода подтверждения
+          example: 3
+        expiresAt:
+          type: string
+          format: date-time
+          description: Срок действия вызова подтверждения
+          example: '2026-10-29T12:17:00Z'
+    CreateSigningSessionRequest:
+      type: object
+      description: Запрос на инициирование подписания клиентом
+      required:
+        - confirmationMethod
+      properties:
+        confirmationMethod:
+          $ref: '#/components/schemas/ConfirmationMethod'
+        deviceId:
+          type: string
+          maxLength: 128
           description: |
-            Одноразовый код подтверждения. Для `SMS_OTP` — код из SMS; для
-            `PUSH_APP` — код, сформированный приложением партнёра после
-            локальной аутентификации клиента.
-          example: '482915'
+            Идентификатор устройства клиента для адресации push-подтверждения.
+            Не должен содержать номер телефона и иные прямые идентификаторы.
+          example: device-7c1e9a
+    ConfirmSigningSessionRequest:
+      type: object
+      description: Подтверждение намерения подписать пакет
+      required:
+        - challengeId
+        - confirmationCode
+      properties:
+        challengeId:
+          type: string
+          maxLength: 64
+          description: Идентификатор вызова подтверждения, полученный при создании сессии
+          example: ch-9f8e7d6c5b4a
+        confirmationCode:
+          type: string
+          pattern: '^[0-9]{6}$'
+          description: |
+            Одноразовый код подтверждения. Не журналируется и не возвращается
+            в ответах.
+          example: '482913'
     RejectSigningSessionRequest:
       type: object
-      description: Запрос на отказ клиента от подписания
+      description: Отказ клиента от подписания пакета
       required:
-        - reasonCode
+        - reason
       properties:
-        reasonCode:
+        reason:
           type: string
-          enum:
-            - CLIENT_DECLINED
-            - WRONG_DOCUMENTS
-            - OTHER
-          description: Причина отказа
-          example: CLIENT_DECLINED
-        comment:
-          type: string
+          minLength: 1
           maxLength: 500
-          description: Комментарий клиента или сотрудника поддержки
+          description: Причина отказа; сохраняется в `statusReason` пакета
           example: Клиент не согласен с условиями документа
-    DocumentStatusItem:
-      type: object
-      description: Статус документа в callback-уведомлении
-      required:
-        - documentId
-        - status
-      properties:
-        documentId:
-          type: string
-          format: uuid
-          example: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
-        partnerDocumentId:
-          type: string
-          maxLength: 64
-          nullable: true
-          example: DOC-458-01
-        status:
-          $ref: '#/components/schemas/DocumentStatus'
-        errorCode:
-          type: string
-          maxLength: 64
-          nullable: true
-          description: Код ошибки документа, если статус FAILED
-          example: SIGNING_PROVIDER_ERROR
     PackageEvent:
       type: object
-      description: Уведомление партнёра об изменении состояния пакета
+      description: |
+        Событие изменения состояния пакета, доставляемое на `callbackUrl`.
+        Доставка не гарантирует порядок; получатель обязан распознавать
+        повторы по `eventId`.
       required:
         - eventId
         - eventType
         - occurredAt
         - packageId
-        - packageStatus
-        - externalRequestId
-        - documents
-        - summary
+        - status
       properties:
         eventId:
           type: string
           format: uuid
-          description: Уникальный идентификатор события
-          example: f6a7b8c9-d0e1-4f2a-9b3c-4d5e6f708192
+          description: Идентификатор события; используется для дедупликации
+          example: 7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
         eventType:
           type: string
-          enum:
-            - package.pending_confirmation
-            - package.signing_started
-            - package.signed
-            - package.partially_signed
-            - package.failed
-            - package.rejected
-            - package.expired
-            - package.cancelled
           description: Тип события
-          example: package.signed
+          enum:
+            - signing-package.submitted
+            - signing-package.signing-started
+            - signing-package.completed
+            - signing-package.rejected
+            - signing-package.cancelled
+            - signing-package.expired
+          example: signing-package.completed
         occurredAt:
           type: string
           format: date-time
-          description: Время события
+          description: Время возникновения события
           example: '2026-10-29T12:07:30Z'
         packageId:
           type: string
           format: uuid
           description: Идентификатор пакета
           example: 5f0c2d7e-8a41-4b6c-9d2e-1f3a5b7c9e01
-        packageStatus:
+        status:
           $ref: '#/components/schemas/PackageStatus'
-        externalRequestId:
-          type: string
-          maxLength: 64
-          description: Внешний идентификатор запроса партнёра
-          example: BNK-2026-000458
-        signatureType:
-          type: string
-          enum:
-            - UKEP
-          description: Вид электронной подписи
-          example: UKEP
-        resultAvailable:
-          type: boolean
-          description: Доступен ли итоговый результат по пакету
-          example: true
-        documents:
-          type: array
-          items:
-            $ref: '#/components/schemas/DocumentStatusItem'
         summary:
           $ref: '#/components/schemas/PackageSummary'
-    ProblemDetail:
+        documents:
+          type: array
+          description: Результаты по документам, если событие связано с подписанием
+          items:
+            type: object
+            required:
+              - documentId
+              - status
+            properties:
+              documentId:
+                type: string
+                format: uuid
+                description: Идентификатор документа
+                example: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d
+              partnerDocumentId:
+                type: string
+                maxLength: 64
+                description: Идентификатор документа в системе партнёра
+                example: DOC-458-01
+              status:
+                $ref: '#/components/schemas/DocumentStatus'
+    ValidationIssue:
       type: object
-      description: Детализация ошибки по конкретному полю или условию
+      description: Замечание валидации по конкретному полю или документу
       required:
+        - field
         - code
         - message
       properties:
         field:
           type: string
-          maxLength: 256
-          description: Путь к полю или параметру запроса
-          example: documents[0].sha256
+          description: Путь к полю или элементу массива
+          example: documents[1].sha256
         code:
           type: string
-          maxLength: 64
-          description: Код детализации
-          example: INVALID_FORMAT
+          description: Машиночитаемый код замечания
+          example: PATTERN_MISMATCH
         message:
           type: string
-          maxLength: 1024
-          description: Описание детализации
-          example: Ожидается 64 шестнадцатеричных символа в нижнем регистре
+          description: Описание замечания
+          example: Ожидается 64 символа в нижнем шестнадцатеричном регистре
     Problem:
       type: object
-      description: Единая модель ошибки API
+      description: |
+        Единая модель ошибки API. `retryable` показывает, допустим ли повтор
+        того же запроса без изменения данных.
       required:
+        - type
+        - title
+        - status
         - code
-        - message
         - traceId
         - timestamp
         - retryable
       properties:
+        type:
+          type: string
+          format: uri
+          description: URI типа проблемы
+          example: https://api.podpis-online.example/problems/validation-error
+        title:
+          type: string
+          description: Краткое описание проблемы
+          example: Ошибка валидации запроса
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+          description: HTTP-код ответа
+          example: 400
         code:
           type: string
-          description: Машиночитаемый код ошибки
+          description: |
+            Машиночитаемый код ошибки. Полный перечень и правила обработки —
+            в `x-error-catalog`.
           enum:
             - MALFORMED_REQUEST
             - VALIDATION_ERROR
+            - UNAUTHENTICATED
+            - ACCESS_DENIED
             - IDEMPOTENCY_KEY_REQUIRED
             - IDEMPOTENCY_KEY_REUSED
             - IDEMPOTENCY_KEY_IN_PROGRESS
-            - INVALID_PACKAGE_EXPIRY
-            - INVALID_PAGINATION_CURSOR
-            - DOCUMENT_LIMIT_EXCEEDED
-            - UNSUPPORTED_DOCUMENT_FORMAT
-            - EMPTY_DOCUMENT
-            - CHECKSUM_MISMATCH
-            - DOCUMENTS_NOT_READY
-            - PACKAGE_SIZE_EXCEEDED
-            - INVALID_CONFIRMATION_CODE
-            - CLIENT_CERTIFICATE_NOT_FOUND
-            - CLIENT_CERTIFICATE_REVOKED
-            - CLIENT_CERTIFICATE_EXPIRED
-            - UNAUTHENTICATED
-            - ACCESS_DENIED
+            - DUPLICATE_EXTERNAL_REQUEST_ID
+            - INVALID_CURSOR
+            - PRECONDITION_REQUIRED
+            - VERSION_MISMATCH
             - PACKAGE_NOT_FOUND
             - DOCUMENT_NOT_FOUND
             - SESSION_NOT_FOUND
-            - INVALID_STATE_TRANSITION
             - PACKAGE_NOT_EDITABLE
+            - INVALID_STATE_TRANSITION
             - PACKAGE_EXPIRED
+            - DOCUMENTS_NOT_READY
+            - DOCUMENT_LIMIT_EXCEEDED
+            - PACKAGE_SIZE_EXCEEDED
+            - UNSUPPORTED_DOCUMENT_FORMAT
+            - EMPTY_DOCUMENT
+            - CHECKSUM_MISMATCH
+            - UNSUPPORTED_MEDIA_TYPE
+            - PAYLOAD_TOO_LARGE
             - DOCUMENT_NOT_SIGNED
             - ACTIVE_SESSION_EXISTS
+            - INVALID_CONFIRMATION_CODE
             - SESSION_EXPIRED
             - SESSION_BLOCKED
             - INVALID_SESSION_STATE
-            - DUPLICATE_EXTERNAL_REQUEST_ID
-            - VERSION_MISMATCH
-            - UNSUPPORTED_MEDIA_TYPE
-            - PAYLOAD_TOO_LARGE
+            - CLIENT_CERTIFICATE_NOT_FOUND
+            - CLIENT_CERTIFICATE_REVOKED
+            - CLIENT_CERTIFICATE_EXPIRED
             - RATE_LIMIT_EXCEEDED
             - INTERNAL_ERROR
             - SIGNING_PROVIDER_ERROR
             - SIGNING_PROVIDER_TIMEOUT
-            - IDENTITY_PROVIDER_ERROR
             - SERVICE_UNAVAILABLE
+            - GATEWAY_TIMEOUT
           example: VALIDATION_ERROR
-        message:
+        detail:
           type: string
-          maxLength: 1024
-          description: Человекочитаемое описание ошибки
-          example: Запрос не прошёл валидацию
+          maxLength: 2000
+          description: Уточняющее описание причины ошибки
+          example: Поле documents[1].sha256 не соответствует формату SHA-256
         traceId:
           type: string
           maxLength: 64
-          description: Идентификатор трассировки для обращения в поддержку
-          example: 7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+          description: Идентификатор запроса для обращения в поддержку
+          example: req-20261029-000458
         timestamp:
           type: string
           format: date-time
-          description: Время формирования ошибки
+          description: Время формирования ответа об ошибке
           example: '2026-10-29T12:00:00Z'
         retryable:
           type: boolean
-          description: |
-            Допускает ли ошибка автоматический повтор того же запроса. При
-            неизвестном результате криптографической операции значение `false`.
+          description: Допустим ли автоматический повтор того же запроса
           example: false
-        details:
+        issues:
           type: array
-          maxItems: 20
-          description: Детализация ошибки
+          description: Замечания валидации по полям и документам
           items:
-            $ref: '#/components/schemas/ProblemDetail'
-x-jira-issues:
-  - SCRUM-2140
-  - SCRUM-2139
-x-sources:
-  - id: SCRUM-2140
-    type: jira
-    url: https://javacode.atlassian.net/browse/SCRUM-2140
-    usage: Исходные требования и Definition of Done
-  - id: SCRUM-2139
-    type: jira
-    url: https://javacode.atlassian.net/browse/SCRUM-2139
-    usage: Контекст программы артефактов сервиса «ПодписьОнлайн»
-  - id: knowledge/business rules.md
-    type: knowledge-base
-    usage: Бизнес-правила 2.1–2.5, 4.1–4.8, 5.1–5.4
-  - id: knowledge/glossary.md
-    type: knowledge-base
-    usage: Терминология предметной области
-  - id: knowledge/assumptions.md
-    type: knowledge-base
-    usage: Границы ответственности, роли, классификация ошибок и ретраев
+            $ref: '#/components/schemas/ValidationIssue'
 x-error-catalog:
   MALFORMED_REQUEST:
     httpStatus: 400
     retryable: false
-    description: Тело запроса не является корректным JSON или не соответствует контракту
+    description: Тело запроса не является корректным JSON или нарушен формат заголовка
   VALIDATION_ERROR:
     httpStatus: 400
     retryable: false
-    description: Нарушены ограничения схемы или бизнес-правила валидации полей
+    description: Поля запроса не прошли проверку схемы или бизнес-валидацию
+  UNAUTHENTICATED:
+    httpStatus: 401
+    retryable: false
+    description: Токен отсутствует, истёк или не прошёл проверку подписи
+  ACCESS_DENIED:
+    httpStatus: 403
+    retryable: false
+    description: У инициатора нет прав на операцию или недостаточен scope
   IDEMPOTENCY_KEY_REQUIRED:
     httpStatus: 400
     retryable: false
-    description: Для изменяющей операции не передан обязательный Idempotency-Key
+    description: Отсутствует обязательный заголовок Idempotency-Key
   IDEMPOTENCY_KEY_REUSED:
     httpStatus: 409
     retryable: false
@@ -2955,245 +2536,139 @@ x-error-catalog:
   IDEMPOTENCY_KEY_IN_PROGRESS:
     httpStatus: 409
     retryable: true
-    description: Запрос с этим ключом ещё выполняется; повтор после Retry-After вернёт результат
-  INVALID_PACKAGE_EXPIRY:
+    description: Запрос с этим ключом ещё обрабатывается
+  DUPLICATE_EXTERNAL_REQUEST_ID:
+    httpStatus: 409
+    retryable: false
+    description: externalRequestId уже использован партнёром
+  INVALID_CURSOR:
     httpStatus: 400
     retryable: false
-    description: Недопустимый expiresAt (в прошлом или дальше 30 дней)
-  INVALID_PAGINATION_CURSOR:
-    httpStatus: 400
+    description: Курсор пагинации некорректен или относится к другой выборке
+  PRECONDITION_REQUIRED:
+    httpStatus: 428
     retryable: false
-    description: Курсор пагинации некорректен или устарел
-  DOCUMENT_LIMIT_EXCEEDED:
-    httpStatus: 422
+    description: Для операции требуется заголовок If-Match
+  VERSION_MISMATCH:
+    httpStatus: 412
     retryable: false
-    description: Превышен настроенный для партнёра лимит документов в пакете
-  UNSUPPORTED_DOCUMENT_FORMAT:
-    httpStatus: 422
-    retryable: false
-    description: Содержимое не является корректным PDF поддерживаемой версии
-  EMPTY_DOCUMENT:
-    httpStatus: 422
-    retryable: false
-    description: Документ пуст или не содержит корректного PDF
-  CHECKSUM_MISMATCH:
-    httpStatus: 422
-    retryable: false
-    description: SHA-256 содержимого не совпадает с метаданными или заголовком
-  DOCUMENTS_NOT_READY:
-    httpStatus: 422
-    retryable: false
-    description: Не для всех документов загружено содержимое; отправка невозможна
-  PACKAGE_SIZE_EXCEEDED:
-    httpStatus: 413
-    retryable: false
-    description: Суммарный размер пакета превышает допустимый
-  INVALID_CONFIRMATION_CODE:
-    httpStatus: 422
-    retryable: false
-    description: Код подтверждения неверен; уменьшено число оставшихся попыток
-  CLIENT_CERTIFICATE_NOT_FOUND:
-    httpStatus: 422
-    retryable: false
-    description: У клиента отсутствует действующий сертификат для УКЭП
-  CLIENT_CERTIFICATE_REVOKED:
-    httpStatus: 422
-    retryable: false
-    description: Сертификат клиента отозван; подписание невозможно
-  CLIENT_CERTIFICATE_EXPIRED:
-    httpStatus: 422
-    retryable: false
-    description: Срок действия сертификата клиента истёк
-  UNAUTHENTICATED:
-    httpStatus: 401
-    retryable: false
-    description: Токен отсутствует, недействителен или истёк
-  ACCESS_DENIED:
-    httpStatus: 403
-    retryable: false
-    description: Недостаточно прав или объект принадлежит другому субъекту
+    description: ETag не совпадает с текущей версией ресурса
   PACKAGE_NOT_FOUND:
     httpStatus: 404
     retryable: false
-    description: Пакет с указанным идентификатором не найден или недоступен
+    description: Пакет не найден или недоступен инициатору
   DOCUMENT_NOT_FOUND:
     httpStatus: 404
     retryable: false
-    description: Документ не найден в указанном пакете
+    description: Документ не найден в составе пакета
   SESSION_NOT_FOUND:
     httpStatus: 404
     retryable: false
-    description: Сессия подтверждения не найдена или недоступна
+    description: Сессия подтверждения не найдена или недоступна инициатору
+  PACKAGE_NOT_EDITABLE:
+    httpStatus: 409
+    retryable: false
+    description: Состав пакета уже зафиксирован и не допускает изменения
   INVALID_STATE_TRANSITION:
     httpStatus: 409
     retryable: false
     description: Операция недопустима в текущем состоянии пакета
-  PACKAGE_NOT_EDITABLE:
-    httpStatus: 409
-    retryable: false
-    description: Содержимое пакета нельзя изменить в текущем состоянии
   PACKAGE_EXPIRED:
     httpStatus: 409
     retryable: false
     description: Истёк срок ожидания подтверждения клиентом
+  DOCUMENTS_NOT_READY:
+    httpStatus: 422
+    retryable: false
+    description: Не все документы пакета загружены и проверены
+  DOCUMENT_LIMIT_EXCEEDED:
+    httpStatus: 422
+    retryable: false
+    description: Число документов в пакете превышает согласованный лимит
+  PACKAGE_SIZE_EXCEEDED:
+    httpStatus: 422
+    retryable: false
+    description: Суммарный размер документов пакета превышает лимит
+  UNSUPPORTED_DOCUMENT_FORMAT:
+    httpStatus: 422
+    retryable: false
+    description: Формат содержимого документа не поддерживается
+  EMPTY_DOCUMENT:
+    httpStatus: 422
+    retryable: false
+    description: Передано пустое содержимое документа
+  CHECKSUM_MISMATCH:
+    httpStatus: 400
+    retryable: false
+    description: Фактическая контрольная сумма не совпадает с заявленной
+  UNSUPPORTED_MEDIA_TYPE:
+    httpStatus: 415
+    retryable: false
+    description: Передан неподдерживаемый MIME-тип содержимого
+  PAYLOAD_TOO_LARGE:
+    httpStatus: 413
+    retryable: false
+    description: Размер содержимого превышает лимит
   DOCUMENT_NOT_SIGNED:
     httpStatus: 409
     retryable: false
-    description: Подписанный вариант запрошен для документа без подписи
+    description: Запрошено подписанное содержимое документа, который не подписан
   ACTIVE_SESSION_EXISTS:
     httpStatus: 409
     retryable: false
     description: Для пакета уже существует активная сессия подтверждения
+  INVALID_CONFIRMATION_CODE:
+    httpStatus: 400
+    retryable: true
+    description: Введён неверный код подтверждения; попытка учтена
   SESSION_EXPIRED:
     httpStatus: 409
     retryable: false
-    description: Истёк срок действия сессии подтверждения
+    description: Срок действия сессии подтверждения истёк
   SESSION_BLOCKED:
     httpStatus: 409
     retryable: false
-    description: Исчерпаны попытки ввода кода; требуется новая сессия
+    description: Сессия заблокирована после исчерпания попыток ввода кода
   INVALID_SESSION_STATE:
     httpStatus: 409
     retryable: false
     description: Операция недопустима в текущем состоянии сессии
-  DUPLICATE_EXTERNAL_REQUEST_ID:
-    httpStatus: 409
+  CLIENT_CERTIFICATE_NOT_FOUND:
+    httpStatus: 422
     retryable: false
-    description: Пакет с таким externalRequestId уже создан этим партнёром
-  VERSION_MISMATCH:
-    httpStatus: 412
+    description: Действующий сертификат клиента не найден
+  CLIENT_CERTIFICATE_REVOKED:
+    httpStatus: 422
     retryable: false
-    description: If-Match не совпадает с актуальной версией пакета
-  UNSUPPORTED_MEDIA_TYPE:
-    httpStatus: 415
+    description: Сертификат клиента отозван
+  CLIENT_CERTIFICATE_EXPIRED:
+    httpStatus: 422
     retryable: false
-    description: Content-Type не поддерживается; ожидается application/pdf
-  PAYLOAD_TOO_LARGE:
-    httpStatus: 413
-    retryable: false
-    description: Размер одного документа превышает допустимый
+    description: Истёк срок действия сертификата клиента
   RATE_LIMIT_EXCEEDED:
     httpStatus: 429
     retryable: true
-    description: Превышен лимит запросов; повтор после Retry-After
+    description: Превышен лимит частоты запросов
   INTERNAL_ERROR:
     httpStatus: 500
     retryable: true
-    description: Внутренняя ошибка сервиса; повторять только идемпотентные запросы
+    description: Непредвиденная внутренняя ошибка сервиса
   SIGNING_PROVIDER_ERROR:
     httpStatus: 502
-    retryable: false
-    description: Ошибка криптографического компонента; результат может быть неизвестен
+    retryable: true
+    description: Криптографический компонент вернул ошибку
   SIGNING_PROVIDER_TIMEOUT:
     httpStatus: 504
-    retryable: false
-    description: Тайм-аут криптографического компонента; результат неизвестен
-  IDENTITY_PROVIDER_ERROR:
-    httpStatus: 502
     retryable: true
-    description: Ошибка сервиса идентификации; повтор допустим после паузы
+    description: Криптографический компонент не ответил за отведённое время
   SERVICE_UNAVAILABLE:
     httpStatus: 503
     retryable: true
-    description: Сервис временно недоступен; повтор после Retry-After
-x-status-models:
-  package:
-    initial: DRAFT
-    terminal:
-      - SIGNED
-      - PARTIALLY_SIGNED
-      - REJECTED
-      - CANCELLED
-      - EXPIRED
-      - FAILED
-    transitions:
-      - from: DRAFT
-        event: submit
-        to: PENDING_CONFIRMATION
-        operationId: submitSigningPackage
-      - from: DRAFT
-        event: cancel
-        to: CANCELLED
-        operationId: cancelSigningPackage
-      - from: PENDING_CONFIRMATION
-        event: confirm
-        to: SIGNING
-        operationId: confirmSigningSession
-      - from: PENDING_CONFIRMATION
-        event: reject
-        to: REJECTED
-        operationId: rejectSigningSession
-      - from: PENDING_CONFIRMATION
-        event: expiresAt_reached
-        to: EXPIRED
-        operationId: null
-      - from: PENDING_CONFIRMATION
-        event: cancel
-        to: CANCELLED
-        operationId: cancelSigningPackage
-      - from: SIGNING
-        event: all_documents_signed
-        to: SIGNED
-        operationId: null
-      - from: SIGNING
-        event: some_documents_signed_some_failed
-        to: PARTIALLY_SIGNED
-        operationId: null
-      - from: SIGNING
-        event: no_documents_signed
-        to: FAILED
-        operationId: null
-  document:
-    initial: PENDING
-    terminal:
-      - SIGNED
-      - FAILED
-    transitions:
-      - from: PENDING
-        event: signing_started
-        to: SIGNING
-        operationId: confirmSigningSession
-      - from: SIGNING
-        event: signed
-        to: SIGNED
-        operationId: null
-      - from: SIGNING
-        event: signing_failed
-        to: FAILED
-        operationId: null
-    notes: |
-      Документ, не участвовавший в подписании из-за отказа клиента, истечения
-      срока или отмены пакета, остаётся в состоянии PENDING. Состояние SIGNING
-      также используется, когда результат криптографической операции ещё
-      неизвестен; сервис выполняет сверку с криптографическим компонентом.
-  signingSession:
-    initial: CREATED
-    terminal:
-      - COMPLETED
-      - REJECTED
-      - EXPIRED
-      - BLOCKED
-    transitions:
-      - from: CREATED
-        event: confirm
-        to: CONFIRMED
-        operationId: confirmSigningSession
-      - from: CREATED
-        event: reject
-        to: REJECTED
-        operationId: rejectSigningSession
-      - from: CREATED
-        event: expiresAt_reached
-        to: EXPIRED
-        operationId: null
-      - from: CREATED
-        event: attempts_exhausted
-        to: BLOCKED
-        operationId: null
-      - from: CONFIRMED
-        event: package_terminal
-        to: COMPLETED
-        operationId: null
+    description: Сервис или зависимость временно недоступны
+  GATEWAY_TIMEOUT:
+    httpStatus: 504
+    retryable: true
+    description: Тайм-аут при взаимодействии с внешней системой
 x-idempotency:
   header: Idempotency-Key
   requiredFor:
@@ -3205,51 +2680,46 @@ x-idempotency:
     - rejectSigningSession
   ttlHours: 24
   scope: |
-    Ключ уникален в пределах комбинации (тип субъекта, идентификатор субъекта,
-    operationId). Для партнёра субъект определяется client_id токена, для клиента —
-    subject токена.
+    Ключ уникален в пределах партнёра и операции. Отпечаток запроса включает
+    метод, путь, параметры и тело.
   replayHeader: Idempotent-Replayed
   behavior: |
-    Одинаковый ключ и одинаковое канонизированное тело запроса — возврат
-    сохранённого HTTP-статуса и тела ответа. Одинаковый ключ и другое тело —
-    409 IDEMPOTENCY_KEY_REUSED. Параллельный запрос с тем же ключом до завершения
-    первого — 409 IDEMPOTENCY_KEY_IN_PROGRESS с Retry-After.
+    Повтор с тем же ключом и тем же отпечатком возвращает сохранённый ответ
+    с заголовком Idempotent-Replayed: true. Повтор с другим отпечатком —
+    409 IDEMPOTENCY_KEY_REUSED. Параллельный запрос с тем же ключом —
+    409 IDEMPOTENCY_KEY_IN_PROGRESS (допустим повтор после задержки).
   conflictCodes:
+    - IDEMPOTENCY_KEY_REQUIRED
     - IDEMPOTENCY_KEY_REUSED
     - IDEMPOTENCY_KEY_IN_PROGRESS
-    - DUPLICATE_EXTERNAL_REQUEST_ID
 x-webhooks:
   registration: |
-    Адрес callback передаётся в CreateSigningPackageRequest.callbackUrl и
-    действует в пределах пакета. Сервис принимает только HTTPS-адреса,
-    проверяет отсутствие ссылок на внутренние и приватные адреса (защита от
-    SSRF) и может требовать предварительной регистрации домена партнёра.
-    Секрет для HMAC согласуется при подключении партнёра и может быть
-    отозван и заменён без изменения бизнес-логики.
+    Партнёр указывает callbackUrl при создании пакета. Уведомления доставляются
+    только по пакетам этого партнёра. Отсутствие callbackUrl означает, что
+    партнёр получает состояние опросом.
   events:
-    - package.pending_confirmation
-    - package.signing_started
-    - package.signed
-    - package.partially_signed
-    - package.failed
-    - package.rejected
-    - package.expired
-    - package.cancelled
+    - signing-package.submitted
+    - signing-package.signing-started
+    - signing-package.completed
+    - signing-package.rejected
+    - signing-package.cancelled
+    - signing-package.expired
   delivery: |
-    Ожидаемый ответ — 2XX в течение 5 секунд. Повторные попытки при 4XX/5XX или
-    тайм-ауте: 1 мин, 5 мин, 15 мин, 30 мин, 1 ч, 3 ч. Повторная доставка
-    возможна; получатель обязан распознавать события по X-Webhook-Event-Id.
+    Доставка выполняется методом POST с телом PackageEvent и заголовками
+    X-Webhook-Event-Id и X-Webhook-Timestamp. Получатель обязан отвечать 2xx
+    в течение 5 секунд. При ошибке выполняются повторные попытки с
+    возрастающей задержкой; доставка не гарантирует порядок событий.
   signature: |
-    X-Webhook-Signature: t=<X-Webhook-Timestamp>,v1=<hex HMAC-SHA256 от
-    "<timestamp>.<сырое тело>" с секретом партнёра>. Получатель проверяет подпись
-    до обработки события.
+    X-Webhook-Signature: t=<X-Webhook-Timestamp>,v1=<HMAC-SHA256 от
+    "<timestamp>.<сырое тело>" с секретом партнёра>. Получатель проверяет
+    подпись до обработки события.
 x-rate-limits:
   partner:
     requestsPerMinute: 600
-    scope: client_id
+    scope: client_id партнёра
   client:
     requestsPerMinute: 120
-    scope: subject токена
+    scope: subject клиентского токена
   upload:
     requestsPerMinute: 60
     scope: client_id партнёра
@@ -3261,13 +2731,11 @@ x-open-questions:
       Какой механизм подтверждения намерения клиента является целевым: SMS-код,
       push-подтверждение в приложении партнёра, биометрия или их комбинация?
       Достаточно ли одного фактора для юридически значимого подтверждения?
-      Подтверждение является единым для всего пакета или отдельным для каждого
-      документа?
+      Подтверждение единое для пакета или отдельное для каждого документа?
     impact: |
-      Влияет на модель сессии, состав полей challenge, требования к интеграции
-      с приложением партнёра и каналами доставки кода, а также на доказательную
-      базу подтверждения. Гранулярность подтверждения влияет на число сессий и
-      на допустимость частичного подтверждения состава пакета.
+      Влияет на модель сессии, состав ConfirmationChallenge, требования к
+      интеграции с приложением партнёра и доказательную базу подтверждения.
+      Гранулярность подтверждения определяет число сессий на пакет.
     status: OPEN
     owner: Владелец продукта, архитектор безопасности
   - id: OQ-02
@@ -3276,8 +2744,8 @@ x-open-questions:
       УКЭП (PAdES-BES, CAdES-BES, иной)? Кто предоставляет сертификат и ключ:
       УЦ, отдельный криптопровайдер или приложение клиента?
     impact: |
-      Влияет на signatureFormat, состав CertificateInfo, коды ошибок
-      SIGNING_PROVIDER_*, требования к хранению ключей и проверке подписи.
+      Влияет на SignatureType, состав DocumentSignature и CertificateInfo,
+      коды ошибок SIGNING_PROVIDER_*, требования к хранению ключей.
     status: OPEN
     owner: Архитектор, владелец интеграции с УЦ
   - id: OQ-03
@@ -3286,8 +2754,8 @@ x-open-questions:
       подписываться атомарно? Что делать с уже подписанными документами при
       ошибке остальных?
     impact: |
-      Влияет на статус PARTIALLY_SIGNED, поведение при ошибках, компенсацию и
-      требования партнёров к повторной обработке.
+      Влияет на статус PARTIALLY_SIGNED, поведение при ошибках и требования
+      партнёров к повторной обработке.
     status: OPEN
     owner: Владелец продукта
   - id: OQ-04
@@ -3297,7 +2765,7 @@ x-open-questions:
       обработки?
     impact: |
       Влияет на модель состояний документа и пакета, идемпотентность и контракт
-      повторной обработки.
+      повторной обработки. В текущей версии повторная обработка не описана.
     status: OPEN
     owner: Владелец продукта, архитектор
   - id: OQ-05
@@ -3306,17 +2774,18 @@ x-open-questions:
       подтверждения, срок жизни сессии, срок хранения и доступности подписанных
       документов?
     impact: |
-      Влияет на expiresAt, availableUntil, фоновые переходы в EXPIRED и
-      требования к архивированию.
+      Влияет на expiresAt, фоновые переходы в EXPIRED и требования к
+      архивированию.
     status: OPEN
     owner: Владелец продукта, юридическая служба
   - id: OQ-06
     question: |
       Подтверждаются ли лимиты: 20 документов, 25 МиБ на документ, 100 МиБ на
-      пакет, только PDF?
+      пакет, только PDF? Нужна ли частичная загрузка крупных документов?
     impact: |
       Влияет на валидацию, коды ошибок, лимиты API-шлюза и требования к
-      хранилищу.
+      хранилищу. Частичная загрузка (Content-Range) в текущей версии не
+      поддерживается.
     status: OPEN
     owner: Архитектор, владелец интеграции
   - id: OQ-07
@@ -3325,8 +2794,8 @@ x-open-questions:
       Как сопоставляется clientId партнёра с субъектом токена и внутренним
       клиентом сервиса?
     impact: |
-      Влияет на схему clientOAuth, проверку доступа к пакету и защиту от
-      подмены клиента.
+      Влияет на clientOAuth, проверку доступа к пакету и защиту от подмены
+      клиента.
     status: OPEN
     owner: Архитектор безопасности, владелец интеграции с партнёром
   - id: OQ-08
@@ -3344,22 +2813,14 @@ x-open-questions:
       криптографического компонента? Допустимо ли долгое пребывание пакета в
       SIGNING и кто принимает решение о ручном разборе?
     impact: |
-      Влияет на регламент сверки, статусы SIGNING/FAILED, уведомления и
+      Влияет на регламент сверки, статусы SIGNING и FAILED, уведомления и
       поддержку.
     status: OPEN
     owner: Архитектор, служба эксплуатации
   - id: OQ-10
     question: |
-      Какие требования предъявляются к журналированию, срокам хранения
-      аудиторских событий и юридической значимости подтверждения?
-    impact: |
-      Влияет на состав событий, хранение, доступ поддержки и доказательную базу.
-    status: OPEN
-    owner: Юридическая служба, архитектор безопасности
-  - id: OQ-11
-    question: |
-      Нужна ли в этом API отдельная операция проверки подписи, или достаточно
-      поля verificationStatus в результате?
+      Нужна ли отдельная операция проверки подписи в этом API, или достаточно
+      сведений о подписи в результате обработки пакета?
     impact: |
       Влияет на состав операций и контракт проверки подписи.
     status: OPEN
@@ -3370,19 +2831,18 @@ x-assumptions:
       Система партнёра аутентифицируется по OAuth 2.0 Client Credentials;
       client_id однозначно сопоставлен партнёру. mTLS рекомендуется, но не
       делается обязательным до согласования.
-    rationale: Соответствует модели машинной идентичности в базе знаний.
+    rationale: Соответствует модели машинной идентичности в базе знаний проекта.
     affected: partnerOAuth, доступ к пакетам
   - id: A-02
     statement: |
       Клиентский токен выпускается приложением партнёра после аутентификации
       клиента; sub токена равен clientId, переданному партнёром.
-    rationale: Позволяет проверять принадлежность пакета без передачи ПДн.
+    rationale: Позволяет проверять принадлежность пакета без передачи персональных данных.
     affected: clientOAuth, CreateSigningPackageRequest.clientId
   - id: A-03
     statement: |
-      Пакет создаётся с полным составом; добавление и удаление документов после
-      создания не поддерживается. Для изменения состава пакет отменяется и
-      создаётся заново.
+      Пакет создаётся с полным составом документов; добавление и удаление
+      документов после создания не поддерживается.
     rationale: Обеспечивает неизменность состава до начала подписания.
     affected: createSigningPackage, submitSigningPackage
   - id: A-04
@@ -3393,22 +2853,22 @@ x-assumptions:
     affected: SigningSession, PackageStatus
   - id: A-05
     statement: |
-      При частичном успехе пакет получает PARTIALLY_SIGNED, а результаты
+      При частичном успехе пакет получает PARTIALLY_SIGNED, результаты
       документов сохраняются независимо; автоматическая компенсация уже
       выполненных подписей не выполняется.
-    rationale: Соответствует бизнес-правилу 2.5 базы знаний.
+    rationale: Соответствует бизнес-правилу 2.4 базы знаний о сохранении результатов отдельных подписаний.
     affected: PackageStatus, SigningResult
   - id: A-06
     statement: |
       Подтверждение выполняется одноразовым кодом; поддерживаются SMS_OTP и
-      PUSH_APP, при этом конкретный механизм требует согласования.
+      PUSH_APP, конкретный механизм требует согласования.
     rationale: Даёт единый контракт подтверждения без привязки к каналу.
     affected: ConfirmationMethod, ConfirmSigningSessionRequest
   - id: A-07
     statement: |
       Callback-уведомления необязательны; при отсутствии callbackUrl партнёр
       использует опрос статуса.
-    rationale: Позволяет подключить партнёров с разным уровнем готовности.
+    rationale: Позволяет подключать партнёров с разным уровнем готовности.
     affected: callbackUrl, PackageEvent
   - id: A-08
     statement: |
@@ -3419,9 +2879,8 @@ x-assumptions:
   - id: A-09
     statement: |
       На первом этапе поддерживается только PDF; лимиты 20 документов, 25 МиБ
-      на документ и 100 МиБ на пакет являются предварительными.
-    rationale: Упрощает криптографическую обработку и согласуется с типовыми
-      ограничениями каналов.
+      на документ и 100 МиБ на пакет предварительные.
+    rationale: Упрощает криптографическую обработку и согласуется с типовыми ограничениями каналов.
     affected: DocumentMetadata, Document, ошибки валидации
   - id: A-10
     statement: |
@@ -3434,14 +2893,4 @@ x-assumptions:
       При неизвестном результате подписания пакет остаётся в SIGNING, документ —
       в SIGNING; сервис выполняет сверку с криптографическим компонентом.
     rationale: Соответствует правилу 4.4 базы знаний о неопределённом результате.
-    affected: PackageStatus, DocumentStatus, обработка ошибок
-  - id: A-12
-    statement: |
-      Подтверждение является единым для всего пакета: одна сессия подтверждения
-      покрывает все документы пакета, отдельные подтверждения по документам не
-      предусмотрены.
-    rationale: |
-      Соответствует основному сценарию «одно подтверждение — один пакет».
-      Гранулярность подтверждения не установлена бизнес-правилом 2.4 базы знаний
-      и требует согласования (OQ-01).
-    affected: SigningSession, confirmSigningSession, PackageStatus
+    affected: PackageStatus, DocumentStatus, SigningResult.resultUnknown
