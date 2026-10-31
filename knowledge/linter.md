@@ -1,0 +1,497 @@
+## API governance — OpenAPI
+
+When authoring or editing OpenAPI in this repository, follow these rules. They are generated from the **API Commons** ruleset (462 rules) and expressed by strength: **MUST** (required), **SHOULD** (expected), **MAY** (preferred).
+
+### Paths
+- **SHOULD** The hierarchy of nested resources SHOULD NOT contain more than 8 resource names in the path. _(`limit-nested-sub-resources`)_
+- **SHOULD** APIs SHOULD NOT expand their total URL length beyond a few hundred characters. _(`limit-path-length`)_
+- **SHOULD** The URL path should not contain more than 3 dynamic path parameters. _(`limit-path-parameter`)_
+- **SHOULD** Examples must have either "value" or "externalValue" field. _(`oas3-examples-value-or-externalValue`)_
+- **SHOULD** APIs should define a 429 Too Many Requests response to document rate limiting behavior. _(`operation-define-429-response`)_
+- **SHOULD** Every endpoint SHOULD have a 500 response. _(`operation-define-500-response`)_
+- **SHOULD** Deprecated operations should have a description explaining the deprecation and the migration path / successor. _(`operation-deprecated-require-description`)_
+- **SHOULD** Having a length limitation for each description of each API operation helps apply constraints to how you describe your APIs, while helping drive consistency across APIs when it com…. _(`operation-description-max-length`)_
+- **SHOULD** Response example must match required params examples to form full mocks. _(`operation-examples-form-complete-mocks`)_
+- **SHOULD** Your API should be protected by a `security` rule either at global or operation level. _(`operation-get-require-security`)_
+- **SHOULD** Operation identifiers provide a unique way to identify each individual API, and requiring them to have consistent casing reduces friction when generating SDKs and automating around APIs. _(`operation-id-camel-case`)_
+- **SHOULD** OperationId must use URL friendly characters. _(`operation-id-url-safe`)_
+- **SHOULD** Every operation must have unique "operationId". _(`operation-operationId-unique`)_
+- **SHOULD** PATCH operations must have a request body. _(`operation-patch-must-have-request-body`)_
+- **SHOULD** PATCH operations must accept a body parameter (a `parameters` entry with `in: body`). _(`operation-patch-must-have-request-body-oas2`)_
+- **SHOULD** POST requests SHOULD NOT be used for retrieving information. Use GET instead. _(`operation-post-not-for-retrieval`)_
+- **SHOULD** POST HTTP methods can have a request body, providing a structured payload for configuring each API request. _(`operation-post-require-request-body`)_
+- **SHOULD** POST operations can accept a request payload; in Swagger 2.0 this is a `parameters` entry with `in: body` or `in: formData`, providing a structured payload for configuring each API request. _(`operation-post-require-request-body-oas2`)_
+- **SHOULD** PUT requests MUST have a request body. _(`operation-put-require-request-body`)_
+- **SHOULD** Endpoint must a $ref to a file in resources/. _(`operation-ref-resource-file`)_
+- **SHOULD** Having a paragraph or two description of each API operation helps API consumers understand what is possible with each API request. _(`operation-require-description`)_
+- **SHOULD** Every operation should have an operationId for SDK generation and documentation linking. _(`operation-require-id`)_
+- **SHOULD** Operation identifiers provide a unique way to identify each individual API, which then used for SDK generation and other automation. _(`operation-require-identifier`)_
+- **SHOULD** Having tags applied to each API operations helps organize and group APIs in portals, documentation, search, and other ways in which APIs are made available. _(`operation-require-one-tag`)_
+- **SHOULD** Check if every request has their respective responses. _(`operation-require-response`)_
+- **SHOULD** Check operation security is defined. _(`operation-require-security`)_
+- **SHOULD** Each API operation should have a security definition referencing the central security scheme express for an OpenAPI. _(`operation-require-security-2`)_
+- **SHOULD** Having short and intuitive summary for each API operation helps API consumers understand what is possible with each API request. _(`operation-require-summary`)_
+- **SHOULD** Having tags applied to each API operations helps organize and group APIs in portals, documentation, search, and other ways in which APIs are made available. _(`operation-require-tag`)_
+- **SHOULD** Operation summaries and description should not match. _(`operation-summary-description-differ`)_
+- **SHOULD** Apply length constraints to the operation summary helps keep them consistent for publishing in documentation. _(`operation-summary-max-length`)_
+- **SHOULD** Operation summaries should not have a period, keeping the primary summary for each API as consistent as possible for publishing in documentation. _(`operation-summary-no-period`)_
+- **SHOULD** Having the first letter of each word applied as a tag to API operations helps keep a consistent layout when published via search, documentation, and other ways APIs are made available. _(`operation-tag-title-case`)_
+- **SHOULD** Endpoint must be a $ref. _(`operation-use-ref`)_
+- **SHOULD** MUST use standard HTTP status codes [150]. _(`operation-well-understood-status-codes`)_
+- **SHOULD** Avoid exposing IDs as an integer, UUIDs or other interoperable strings are preferred. _(`parameter-avoid-integer-id`)_
+- **SHOULD** Only GET-based endpoints SHOULD have have the query parameter 'filter'. _(`parameter-filter-param-only-on-get`)_
+- **SHOULD** Query parameters MUST not contain sensitive information, like API tokens or keys. _(`parameter-no-api-keys-in-query`)_
+- **SHOULD** Hybrid filtering MAY be offered on multiple attributes, but MUST never exist if a root "filter" query parameter is present. _(`parameter-no-hybrid-and-root-filtering`)_
+- **SHOULD** Resource identifier filtering is not allowed as a query parameter. Use the resource identifier in the URL path. _(`parameter-no-id-query`)_
+- **SHOULD** Pagination parameters like page, limit, offset, and cursor should be passed as query parameters, not in headers or path segments. _(`parameter-pagination-params-in-query`)_
+- **SHOULD** Query parameter keys MUST include only alpha-numeric characters and periods: [Aa0-Zz9]'. _(`parameter-query-allowed-characters`)_
+- **SHOULD** MUST query parameter names must be ASCII camelCase [130a]. _(`parameter-query-camel-case`)_
+- **SHOULD** Query parameters MUST be optional. _(`parameter-query-must-be-optional`)_
+- **SHOULD** Having a parameters description provides more depth to what a parameter does and will be displayed via documentation, and other tooling used across the API lifecycle. _(`parameter-require-description`)_
+- **SHOULD** Non-GET endpoints MUST NOT have sorting query parameters. Parameter names such as sort, sorting, orderBy, etc. _(`parameter-sort-param-only-on-get`)_
+- **SHOULD** Resources should expose an OPTIONS operation so browsers can complete a CORS preflight. _(`path-cors-support-options-preflight`)_
+- **SHOULD** Path parameter declarations must not be empty, ex."/given/{}" is invalid. _(`path-declarations-must-exist`)_
+- **SHOULD** Check if the delete response does not have any body. _(`path-delete-no-response-body`)_
+- **SHOULD** All APIs returning structured data SHOULD support JSON as the default format. _(`path-get-response-support-json`)_
+- **SHOULD** Path must include the version. _(`path-include-version`)_
+- **SHOULD** Path must not end with slash. _(`path-keys-no-trailing-slash`)_
+- **SHOULD** API paths should not exceed 4 levels of nesting depth. _(`path-max-nesting-depth`)_
+- **SHOULD** A resource SHOULD NOT contain 'api' as a prefix in or a part of the path. _(`path-no-api-prefix-in`)_
+- **SHOULD** A resource MUST use normalized paths without empty path segments. _(`path-no-empty-segment`)_
+- **SHOULD** API paths MUST NOT indicate environment names. _(`path-no-environment-names-in`)_
+- **SHOULD** A resource SHOULD NOT make use of an extension at any point in the path. _(`path-no-file-extension-in`)_
+- **SHOULD** API paths should not include file extensions like .json or .xml. Content negotiation should be handled through Accept headers rather than path suffixes. _(`path-no-file-extensions`)_
+- **SHOULD** Request and Response media type formats MUST NOT be implied using extensions on resources (i.e. _(`path-no-format-extensions-in`)_
+- **SHOULD** When you design a REST API, you don't usually need to mention terms like `get`, `delete` and so on in your `paths`, because this information is conveyed by the HTTP method. _(`path-no-http-method-names`)_
+- **SHOULD** A resource SHOULD NOT contain HTTP methods. _(`path-no-http-methods-in`)_
+- **SHOULD** HTTP verbs should be not be in URL paths. _(`path-no-http-verbs`)_
+- **SHOULD** Check if the given endpoint has queryparameter. _(`path-no-invalid-symbols`)_
+- **SHOULD** Path must not include query string. _(`path-no-query-string`)_
+- **SHOULD** Paths SHOULD NOT have query parameters in them. They should be defined separately in the OpenAPI. _(`path-no-query-strings-in`)_
+- **SHOULD** A resource MUST NOT leak or expose format or technology-specific information at any point in the path. _(`path-no-technology-leak-in`)_
+- **SHOULD** Path must not end with a slash. _(`path-no-trailing-slash`)_
+- **SHOULD** A resource MUST be addressable without a trailing slash on the path. _(`path-no-trailing-slash-in`)_
+- **SHOULD** API paths MUST be resource-focused and MUST NOT include verbs like 'get', 'update', 'create', or 'delete'. _(`path-no-verbs`)_
+- **SHOULD** API paths should not contain version numbers like v1 or v2. _(`path-no-version-segment`)_
+- **SHOULD** Path must not include query string. _(`path-not-include-query`)_
+- **SHOULD** Path parameter declarations must not be empty ex. `/api/{}` is invalid. _(`path-parameter-not-empty`)_
+- **SHOULD** Path parameters must be defined and valid. _(`path-params`)_
+- **SHOULD** Check for the path parameter in the parameter block. _(`path-params-declared-in-block`)_
+- **SHOULD** Check if the given resource path has queryparameter. _(`path-require-query-parameter`)_
+- **SHOULD** Header X-B3-Traceid, X-B3-Spanid or traceparent (w3c) missing. _(`path-require-tracing-header`)_
+- **SHOULD** All APIs MUST have a valid http verb. _(`path-require-valid-http-verb`)_
+- **SHOULD** Resource names in paths should use plural nouns to maintain consistency and follow REST conventions for collection-oriented resource design. _(`path-resources-plural`)_
+- **SHOULD** All YAML/JSON paths MUST follow kebab-case. _(`path-segment-kebab-case`)_
+- **SHOULD** Check if the response description is appropriate for all requests. _(`path-success-response-require-description`)_
+- **SHOULD** Path can contain correct URI versioning. _(`path-uri-versioning-single-version`)_
+- **SHOULD** Operations MUST use only the common HTTP methods as outlined in the standards guide, and must be in lower-case. _(`path-use-standard-http-methods`)_
+- **SHOULD** All APIs returning structured data SHOULD support JSON as the default format. _(`path-write-response-support-json`)_
+- **SHOULD** Request bodies should use application/json as the primary content type for consistency across API operations and client implementations. _(`request-body-must-use-json-content-type`)_
+- **SHOULD** Request bodies should be consumed as application/json for consistency across API operations and client implementations. _(`request-body-must-use-json-content-type-oas2`)_
+- **SHOULD** Request with content must have examples. _(`request-content-require-examples`)_
+- **SHOULD** DELETE operations must not accept a request body. _(`request-delete-must-not-have-body`)_
+- **SHOULD** A DELETE operation must not accept a body parameter. _(`request-delete-must-not-have-body-oas2`)_
+- **SHOULD** DELETE requests MUST NOT have a request body. _(`request-delete-no-body`)_
+- **SHOULD** A `GET` request MUST NOT accept a request body. _(`request-get-must-not-have-body`)_
+- **SHOULD** A `GET` request MUST NOT accept a body parameter. _(`request-get-must-not-have-body-oas2`)_
+- **SHOULD** GET requests MUST NOT have a request body. _(`request-get-no-body`)_
+- **SHOULD** A `HEAD` request MUST NOT accept a request body. _(`request-head-must-not-have-body`)_
+- **SHOULD** A `HEAD` request MUST NOT accept a body parameter. _(`request-head-must-not-have-body-oas2`)_
+- **SHOULD** An `OPTIONS` request MUST NOT accept a request body. _(`request-options-must-not-have-body`)_
+- **SHOULD** An `OPTIONS` request MUST NOT accept a body parameter. _(`request-options-must-not-have-body-oas2`)_
+- **SHOULD** POST collection endpoints MUST have a request body schema that includes paging parameters. _(`request-post-collection-require-paging-object`)_
+- **SHOULD** POST collection endpoints MUST have a body-parameter schema that includes paging parameters. _(`request-post-collection-require-paging-object-oas2`)_
+- **SHOULD** MUST property names must be ASCII camelCase [118a]. _(`request-property-names-camel-case`)_
+- **SHOULD** MUST property names must be ASCII camelCase [118a]. _(`request-property-names-camel-case-oas2`)_
+- **SHOULD** Every request MUST support `application/x-www-form-urlencoded` media type. _(`request-support-form-urlencoded-media-type`)_
+- **SHOULD** Every request MUST support `application/json` media type. _(`request-support-json-media-type`)_
+- **SHOULD** Every request MUST support `application/json` media type. _(`request-support-json-media-type-2`)_
+- **SHOULD** Every request MUST support `multipart/form-data` media type. _(`request-support-multipart-media-type`)_
+- **SHOULD** Every request MUST support `text/plain` media type. _(`request-support-text-plain-media-type`)_
+- **SHOULD** Every request MUST support `application/xml` media type. _(`request-support-xml-media-type`)_
+- **SHOULD** Check if the get response code 206 has content-type and content-range. _(`response-206-require-content-range`)_
+- **SHOULD** All 400 responses must include a response body. _(`response-400-require-body`)_
+- **SHOULD** Response bodies must be an object type. _(`response-body-must-be-object`)_
+- **SHOULD** Response bodies must be an object type. _(`response-body-must-be-object-oas2`)_
+- **SHOULD** Response bodies must have a root element called results and is an array of objects. _(`response-collection-require-results-array`)_
+- **SHOULD** Response bodies must have a root element called results and is an array of objects. _(`response-collection-require-results-array-oas2`)_
+- **SHOULD** Response bodies from collection endpoints SHOULD offer paging capability. _(`response-collection-support-paging`)_
+- **SHOULD** Response bodies from collection endpoints SHOULD offer paging capability. _(`response-collection-support-paging-oas2`)_
+- **SHOULD** Response with content must have examples. _(`response-content-require-examples`)_
+- **SHOULD** Custom headers MUST NOT be longer than 50 chars, and MUST only contain alphanumeric and dash chars, and MUST begin with Sps- not X-. _(`response-custom-header-naming-format`)_
+- **SHOULD** Content-Language is optional but MUST default locale to en-US when none provided. _(`response-default-content-language-en-us`)_
+- **SHOULD** Responses should contain common response - 401 (unauthorized). _(`response-define-401`)_
+- **SHOULD** Responses should contain common response - 404 (not found). _(`response-define-404`)_
+- **SHOULD** Responses should contain common response - 429 (too many requests). _(`response-define-429`)_
+- **SHOULD** Responses should contain common response - 500 (server error). _(`response-define-500`)_
+- **SHOULD** DELETE 404 not found HTTP status codes have a schema references to standardize the response payload returned for the error response. _(`response-delete-404-use-schema-ref`)_
+- **SHOULD** DELETE operations should not return 200 or 201 status codes. _(`response-delete-codes-allowed`)_
+- **SHOULD** DELETE responses should have a 204 success HTTP status codes, communicating a success created response to consumers. _(`response-delete-define-204`)_
+- **SHOULD** DELETE operations should define a 401 Unauthorized response to document authentication requirements for destructive operations. _(`response-delete-define-401`)_
+- **SHOULD** DELETE responses should have a 500 internal server erorr HTTP status code, communicating the API had a problem to consumers. _(`response-delete-define-500`)_
+- **SHOULD** DELETE operations must not have a response body. _(`response-delete-must-not-return-body`)_
+- **SHOULD** DELETE operations must not have a response body. _(`response-delete-must-not-return-body-oas2`)_
+- **SHOULD** All DELETE methods MUST have a 204 response. _(`response-delete-require-204`)_
+- **SHOULD** WARN: This rule is under implementation and just provides an hint. _(`response-error-match-problem-schema`)_
+- **SHOULD** Check if the response description is appropriate for all requests. _(`response-error-require-description`)_
+- **SHOULD** All 4XX and 5XX response codes must follow Trimble API Standard. _(`response-error-standard-payload`)_
+- **SHOULD** All 4xx and 5xx error responses MUST use the `application/problem+json` media type (RFC 7807). _(`response-error-use-problem-json`)_
+- **SHOULD** Error management is a key enabler of a resilient API ecosystem. _(`response-error-use-problem-type`)_
+- **SHOULD** Every error response SHOULD support RFC 7807. _(`response-error-use-problem-type-2`)_
+- **SHOULD** GET operations should not use status codes 201, 202, 204, 409, 412. _(`response-get-codes-allowed`)_
+- **SHOULD** GET responses should have a 200 success HTTP status codes, communicating a successful response to consumers. _(`response-get-define-200`)_
+- **SHOULD** GET operations should define a 401 Unauthorized response. _(`response-get-define-401`)_
+- **SHOULD** GET responses should have a 500 internal server erorr HTTP status code, communicating the API had a problem to consumers. _(`response-get-define-500`)_
+- **SHOULD** GET operations must always return 200 status code. _(`response-get-must-return-200`)_
+- **SHOULD** A `GET` operation must return a response body. _(`response-get-must-return-body`)_
+- **SHOULD** A `GET` operation must return a response body. _(`response-get-must-return-body-oas2`)_
+- **SHOULD** HEAD operations should not return 201, 202, 204, 409, 412 status codes. _(`response-head-codes-allowed`)_
+- **SHOULD** HEAD operations should not return a response body for success. _(`response-head-must-not-return-body`)_
+- **SHOULD** HEAD operations should not return a response body for success. _(`response-head-must-not-return-body-oas2`)_
+- **SHOULD** The API contract MAY include hypermedia links to represent the state of resources and be navigable. _(`response-include-hypermedia-links`)_
+- **SHOULD** Location header MUST NOT be present in non-201 responses. _(`response-location-header-only-on-201`)_
+- **SHOULD** API responses should use application/json as the primary content type. _(`response-must-use-json-content-type`)_
+- **SHOULD** API responses should offer application/json as a produced content type. _(`response-must-use-json-content-type-oas2`)_
+- **SHOULD** Access-Control-*, Content-Type, and Accept Headers SHOULD NOT be specified explicitly in a spec as it an operational concern. _(`response-no-operational-header-in-spec`)_
+- **SHOULD** Headers MUST NOT contain sensitive data. _(`response-no-sensitive-data-in-header`)_
+- **SHOULD** OPTIONS operations should not return 201, 202, 409, 412 status codes. _(`response-options-codes-allowed`)_
+- **SHOULD** OPTIONS operations should not return a response body for success. _(`response-options-must-not-return-body`)_
+- **SHOULD** OPTIONS operations should not return a response body for success. _(`response-options-must-not-return-body-oas2`)_
+- **SHOULD** PATCH operations should not return 201 status code. _(`response-patch-codes-allowed`)_
+- **SHOULD** PATCH operations should define a 200 OK response for successful partial updates. Analysis shows PATCH is used in 17.7% of APIs. _(`response-patch-define-200`)_
+- **SHOULD** PATCH operations should define a 400 Bad Request response for validation errors on partial update payloads. _(`response-patch-define-400`)_
+- **SHOULD** PATCH operations should define a 404 Not Found response for cases where the resource to be updated does not exist. _(`response-patch-define-404`)_
+- **SHOULD** POST operations should not return 412 status codes. _(`response-post-codes-allowed`)_
+- **SHOULD** POST responses should have a 201 success HTTP status codes, communicating a success created response to consumers. _(`response-post-define-201`)_
+- **SHOULD** POST operations should define a 400 Bad Request response for input validation errors. _(`response-post-define-400`)_
+- **SHOULD** POST operations should define a 401 Unauthorized response to document authentication requirements for write operations. _(`response-post-define-401`)_
+- **SHOULD** POST responses should have a 500 internal server erorr HTTP status code, communicating the API had a problem to consumers. _(`response-post-define-500`)_
+- **SHOULD** All POST methods MUST have a 201 or 202 response. _(`response-post-require-201-or-202`)_
+- **SHOULD** MUST use standard HTTP status codes [150a]. _(`response-prefer-400-over-422`)_
+- **SHOULD** PUT operations should not return 200 or 201 status codes. _(`response-put-codes-allowed`)_
+- **SHOULD** PUT responses should have a 400 not found HTTP status code, communicating nothing was found to consumers. _(`response-put-define-400`)_
+- **SHOULD** PUT operations should define a 401 Unauthorized response to document authentication requirements for update operations. _(`response-put-define-401`)_
+- **SHOULD** PUT responses should have a 500 internal server erorr HTTP status code, communicating the API had a problem to consumers. _(`response-put-define-500`)_
+- **SHOULD** "/status" schema is not a Problem object. _(`response-status-path-problem-schema-fields`)_
+- **SHOULD** "/status" schema is not a Problem object. _(`response-status-path-problem-schema-fields-oas2`)_
+- **SHOULD** "/status" must return a Problem object. _(`response-status-path-return-problem-type`)_
+- **SHOULD** "/status" must be produced as a Problem media type. _(`response-status-path-return-problem-type-oas2`)_
+- **SHOULD** All 2xx success responses MUST use the `application/hal+json` media type. _(`response-success-use-hal-json`)_
+- **SHOULD** All responses MUST use the JSON:API `application/vnd.api+json` media type. _(`response-use-json-api`)_
+- **SHOULD** MIME types MUST be standard (application/json, application/problem+json, application/problem+xml) or use custom format application/vnd.*. _(`response-use-standard-mime-types`)_
+- **SHOULD** Produced MIME types MUST be standard (application/json, application/problem+json, application/problem+xml) or use custom format application/vnd.*. _(`response-use-standard-mime-types-oas2`)_
+- **SHOULD** MUST use standard HTTP status codes [150a]. _(`response-use-standard-status-codes`)_
+- **SHOULD** An API MUST return HTTP response codes in conformance with RFC-2616 and common usage. _(`response-use-standard-status-codes-2`)_
+- **SHOULD** All API responses MUST include the Content-Type header in all responses. _(`response-write-require-content-type`)_
+- **SHOULD** Collection GET endpoints SHOULD support pagination using query parameters. Offset or cursor based pagination is required. _(`schema-collection-require-pagination-params`)_
+- **SHOULD** GET responses should have a 404 not found HTTP status code, communicating that nothing was found to consumers. _(`schema-get-define-404-response`)_
+- **SHOULD** Your API should be protected by a `security` rule either at global or operation level. _(`schema-write-operation-require-security`)_
+- **SHOULD** Detects a tag with camelCase (personalItem) text within it. _(`tag-no-camel-case`)_
+- **SHOULD** Tag No Pascal Case. _(`tag-no-pascal-case`)_
+- **SHOULD** Tag No Version Info. _(`tag-no-version-info`)_
+
+### Schemas
+- **SHOULD** Schemas with "type: array", require a sibling "items" field. _(`array-items`)_
+- **SHOULD** Enum values must not have duplicate entry. _(`duplicated-entry-in-enum`)_
+- **SHOULD** Property must not be placed among $ref. _(`no-$ref-siblings`)_
+- **SHOULD** Parameters that are of the integer schema type must have their maximum value set, defining the shape of parameter data passed in with a request. _(`parameter-integer-require-maximum`)_
+- **SHOULD** Parameters that are of the integer schema type must have their minimum value set, defining the shape of parameter data passed in with a request. _(`parameter-integer-require-minimum`)_
+- **SHOULD** Parameters that are of the string schema type must have their maximum value set, defining the shape of parameter data passed in with a request. _(`parameter-string-require-max-length`)_
+- **SHOULD** Parameters that are of the string schema type must have their minimum value set, defining the shape of parameter data passed in with a request. _(`parameter-string-require-min-length`)_
+- **SHOULD** Parameters that are of the string schema type must have a pattern set, using a regex to define the shape of parameter data passed in with a request. _(`parameter-string-require-pattern`)_
+- **SHOULD** Schema properties that are of the type array must have an items property defined. _(`schema-array-property-require-items`)_
+- **SHOULD** Schema properties that are of the type array should have a max items property defined. _(`schema-array-property-require-max-items`)_
+- **SHOULD** Schema properties that are of the type array should have a min items property defined. _(`schema-array-property-require-min-items`)_
+- **SHOULD** Array properties must have an items attribute with a type. _(`schema-array-property-typed-items`)_
+- **SHOULD** Array size should be limited to mitigate resource exhaustion attacks. This can be done using `maxItems` and `minItems`, like in the example below.. _(`schema-array-require-min-max-items`)_
+- **SHOULD** Boolean properties SHOULD NOT use is, has, or another prefix. _(`schema-boolean-no-prefix`)_
+- **SHOULD** createdDateTime MUST use a data type of 'string' with the format 'date-time'. _(`schema-created-datetime-must-be-date-time`)_
+- **SHOULD** createdBy MUST use a data type of 'string'. _(`schema-createdby-property-must-be-string`)_
+- **SHOULD** Date/time string properties (createdAt, updated_at, *_date, timestamp, …) should declare a format such as date-time (RFC 3339) so the value is unambiguous and machine-validatable. _(`schema-date-time-property-require-format`)_
+- **SHOULD** Schema definitions MUST follow camelCase. _(`schema-definition-camel-case`)_
+- **SHOULD** Schema definitions MUST follow CONSTANT_CASE (screaming snake_case). _(`schema-definition-constant-case`)_
+- **SHOULD** Schema definitions MUST follow kebab-case. _(`schema-definition-kebab-case`)_
+- **SHOULD** Schema definitions MUST follow PascalCase. _(`schema-definition-pascal-case`)_
+- **SHOULD** Schema definitions MUST follow snake_case. _(`schema-definition-snake-case`)_
+- **SHOULD** deletedBy MUST use a data type of 'string'. _(`schema-deletedby-property-must-be-string`)_
+- **SHOULD** Deprecated schema properties should have a description explaining the deprecation and the replacement field. _(`schema-deprecated-property-require-description`)_
+- **SHOULD** Schema should have a length limit applied, restricting how long schema descriptions can be, helping keep them concise and consistent. _(`schema-description-max-length`)_
+- **SHOULD** description MUST use a data type of 'string'. _(`schema-description-property-must-be-string`)_
+- **SHOULD** An enum should declare at least one value — an empty enum permits nothing and is almost always a mistake. _(`schema-enum-not-empty`)_
+- **SHOULD** Fingerprint values MUST use a data type of `string`. _(`schema-fingerprint-property-must-be-string`)_
+- **SHOULD** id SHOULD use a data type of 'string'. _(`schema-id-property-must-be-string`)_
+- **SHOULD** schema key must be snake cased (e.g. snake_case). _(`schema-keys-snake-case`)_
+- **SHOULD** modifiedDateTime MUST use a data type of 'string' with the format 'date-time'. _(`schema-modified-datetime-must-be-date-time`)_
+- **SHOULD** modifiedBy MUST use a data type of 'string'. _(`schema-modifiedby-property-must-be-string`)_
+- **SHOULD** Monetary properties (amount, price, cost, fee, balance, …) should avoid floating-point numbers, which lose precision — use an integer of minor units or a decimal string instead. _(`schema-monetary-property-avoid-float`)_
+- **SHOULD** Schema should have a length limit applied keeping the names of schema consistent across APIs. _(`schema-name-max-length`)_
+- **SHOULD** name MUST use a data type of 'string'. _(`schema-name-property-must-be-string`)_
+- **SHOULD** Schema names SHOULD be written in PascalCase. _(`schema-names-pascal-case`)_
+- **SHOULD** Schema properties that are of the type number should have a maximum property defined. _(`schema-number-property-require-maximum`)_
+- **SHOULD** Schema properties that are of the type number should have a minimum property defined. _(`schema-number-property-require-minimum`)_
+- **SHOULD** Schema of type number or integer must specify a format to express the associated datatype, eg. _(`schema-number-require-format`)_
+- **SHOULD** Numeric values should be limited in size to mitigate resource exhaustion using `maximum` and `minimum`. _(`schema-number-require-min-max`)_
+- **SHOULD** By default, jsonschema allows additionalProperties. _(`schema-object-constrain-additional-property`)_
+- **SHOULD** By default, jsonschema allows additionalProperties. _(`schema-object-disallow-additional-property`)_
+- **SHOULD** By default, jsonschema allows additionalProperties. _(`schema-object-set-additional-property`)_
+- **SHOULD** orgId MUST use a data type of 'string'. _(`schema-orgid-property-must-be-string`)_
+- **SHOULD** Integer properties should declare a format (int32 / int64) so their range is bounded (OWASP API4 — unrestricted resource consumption). _(`schema-owasp-api4-integer-format`)_
+- **SHOULD** Schema properties MUST follow camelCase. _(`schema-property-camel-case`)_
+- **SHOULD** Schema property names should use camelCase. _(`schema-property-camel-case-3`)_
+- **SHOULD** Schema properties MUST follow CONSTANT_CASE (screaming snake_case). _(`schema-property-constant-case`)_
+- **SHOULD** Schema property descriptions should have a length limit applied, applying constraints to writing descriptions, and keeping consistent across APIs. _(`schema-property-description-max-length`)_
+- **SHOULD** Schema property enumerators are consistent casing, keeping all entries upper snake case, and consistent across all APIs. _(`schema-property-enum-upper-snake-case`)_
+- **SHOULD** Schema properties MUST follow kebab-case. _(`schema-property-kebab-case`)_
+- **SHOULD** Schema property names are camel case, providing consistent casing across all the schema properties used by APIs. _(`schema-property-names-camel-case`)_
+- **SHOULD** Property names and acronyms MUST be in camelCase. _(`schema-property-names-camel-case-2`)_
+- **SHOULD** Schema property names have a length restriction applied, keeping names consistent, and avoiding being too long. _(`schema-property-names-length-limit`)_
+- **SHOULD** Names that may conflict with keywords in common programming languages SHOULD NOT be used. _(`schema-property-no-language-keywords`)_
+- **SHOULD** Property names SHOULD NOT include prepositions (e.g. "for", "during", "at", etc.). _(`schema-property-no-prepositions`)_
+- **SHOULD** Schema properties MUST follow PascalCase. _(`schema-property-pascal-case`)_
+- **SHOULD** Schema properties should have descriptions that provide a narrative of the property contains, and how it can be used. _(`schema-property-require-description`)_
+- **SHOULD** Object properties must include examples. _(`schema-property-require-examples`)_
+- **SHOULD** Schema properties must have a type defined. _(`schema-property-require-type`)_
+- **SHOULD** Schema properties MUST follow snake_case. _(`schema-property-snake-case`)_
+- **SHOULD** ref MUST use a data type of 'string'. _(`schema-ref-property-must-be-string`)_
+- **SHOULD** Property with the name 'ref' MUST use a format 'sps-ref'. _(`schema-ref-property-require-format`)_
+- **SHOULD** Properties following 'sps-ref' format MUST use the standardized schema - maxLength (255), minLength(7), pattern (includes 'sps'), type (string). _(`schema-ref-property-standard`)_
+- **SHOULD** requestId MUST use a data type of 'string'. _(`schema-requestid-property-must-be-string`)_
+- **SHOULD** Schema should have descriptions that provide a narrative of what a schema object is for, and how it can be used, leaving examples to demonstrate what can actually be expected. _(`schema-require-description`)_
+- **SHOULD** Schema names, keeping the naming of them consistent across APIs, standardizing how consumers can use in their applications. _(`schema-require-name`)_
+- **SHOULD** Schema should have a type defined, being explicit about type of data a schema describes and can be used to validate, helping standardize the type of data being made available. _(`schema-require-type`)_
+- **SHOULD** Schema properties that are of the string type have the max length applied defining the shape of the property. _(`schema-string-property-require-max-length`)_
+- **SHOULD** Schema properties that are of the string type have the min length applied defining the shape of the property. _(`schema-string-property-require-min-length`)_
+- **SHOULD** String length should be limited to avoid an attacker to send very long strings to your service. _(`schema-string-require-max-length`)_
+- **SHOULD** String length should be limited to avoid an attacker to send very long strings to your service. _(`schema-string-require-pattern-or-format`)_
+- **SHOULD** Rather than property names refering to the implementation for 'hash' or 'hashkey', you MUST use the property name 'fingerprint'. _(`schema-use-fingerprint-not-hash`)_
+- **SHOULD** Use abbreviations instead of long form names, i.e. identifier SHOULD BE id. _(`schema-use-id-not-identifier`)_
+- **SHOULD** Use abbreviations instead of long form names, i.e. organization SHOULD BE org. _(`schema-use-org-not-organization`)_
+
+### Parameters
+- **SHOULD** Cache usage SHOULD be extensively detailed in the `description` property to avoid data leaks or the usage of stale data. _(`document-cache-control-parameter`)_
+- **SHOULD** All `HTTP` headers MUST use `Hyphenated-Pascal-Case` notation. _(`header-names-hyphenated-pascal-case`)_
+- **SHOULD** 'HTTP' headers SHOULD NOT start with 'X-' RFC6648. _(`header-no-x-prefix`)_
+- **SHOULD** Parameter objects must have "description". _(`oas3-parameter-description`)_
+- **SHOULD** Examples must be valid against their defined schema. _(`oas3-valid-media-example`)_
+- **SHOULD** Examples must be valid against their defined schema. _(`oas3-valid-media-example-oas2`)_
+- **SHOULD** Examples must be valid against their defined schema. _(`oas3-valid-schema-example`)_
+- **SHOULD** Collection GET operations should support filtering via a filter query parameter (e.g. filter or filter[field]). _(`operation-collection-support-filtering`)_
+- **SHOULD** Collection GET operations should support sorting via a sort or order query parameter. _(`operation-collection-support-sorting`)_
+- **SHOULD** GET operations should support sparse fieldsets via a fields query parameter so clients can request only the fields they need. _(`operation-collection-support-sparse-fieldsets`)_
+- **SHOULD** GET operations should accept an If-Modified-Since request header to enable date-based conditional requests. _(`operation-get-support-if-modified-since`)_
+- **SHOULD** GET operations should accept an If-None-Match request header to enable ETag-based conditional requests (304 responses). _(`operation-get-support-if-none-match`)_
+- **SHOULD** POST and PATCH operations should accept an Idempotency-Key request header so clients can safely retry without creating duplicates. _(`operation-mutation-support-idempotency-key`)_
+- **SHOULD** Operation parameters are unique and non-repeating. _(`operation-parameters`)_
+- **SHOULD** Write operations should accept an If-Match request header to enable optimistic concurrency / conditional writes. _(`operation-write-support-if-match`)_
+- **SHOULD** Write operations should accept an If-Unmodified-Since request header to enable date-based optimistic concurrency / conditional writes. _(`operation-write-support-if-unmodified-since`)_
+- **SHOULD** Parameters that are of an array type should always have the items defined, being explicit about what is continued as part of the array. _(`parameter-array-require-items`)_
+- **SHOULD** Array parameters must have an items attribute with a type. _(`parameter-array-typed-items`)_
+- **SHOULD** The limit / page-size query parameter should declare a default so the page size is predictable when the caller omits it. _(`parameter-collection-limit-param-default`)_
+- **SHOULD** The limit / page-size query parameter should declare a maximum so a caller cannot request an unbounded page (OWASP API4 — unrestricted resource consumption). _(`parameter-collection-limit-param-maximum`)_
+- **SHOULD** Deprecated parameters should have a description explaining the deprecation and what to use instead. _(`parameter-deprecated-require-description`)_
+- **SHOULD** Limiting the length of parameters description forces us to be more concise in how we describe each parameter, while keeping our documentation and other ways descriptions show up in…. _(`parameter-description-max-length`)_
+- **SHOULD** Keeping parameters enumerator casing consistent across APIs helps reduce confusion by consumers, and can keep aligned with services and applications putting an API to work. _(`parameter-enum-upper-snake-case`)_
+- **SHOULD** parameter key must be snake cased (e.g. snake_case). _(`parameter-keys-snake-case`)_
+- **SHOULD** Providing short and concise names for your parameters helps make it easier for API consumers to understand how they are able to configure their API requests. _(`parameter-name-max-length`)_
+- **SHOULD** Providing parameters with consistent naming helps make it easier for API consumers to understand how they are able to configure their API requests. _(`parameter-names-camel-case`)_
+- **SHOULD** OAS do not allow using the following HTTP headers in a specification file: Authorization, Content-Type and Accept. _(`parameter-no-forbidden-http-header`)_
+- **SHOULD** Headers cannot start with X-. More: https://tools.ietf.org/html/rfc6648. _(`parameter-no-x-prefixed-request-header`)_
+- **SHOULD** Optional param should have examples. _(`parameter-optional-include-examples`)_
+- **SHOULD** Path parameters should not be sequential integers (BOLA / object enumeration, OWASP API1) — use a non-guessable identifier such as a UUID. _(`parameter-owasp-api1-no-numeric-ids`)_
+- **SHOULD** Parameters must include examples. _(`parameter-require-examples`)_
+- **SHOULD** Providing an in property for parameters gets explicit about whether a parameter is in the path, query, or a header, making it clear to consumers where they can configure their request. _(`parameter-require-in`)_
+- **SHOULD** Providing a simple, intuitive, and consistent names for your parameters helps make it easier for API consumers to understand how they are able to configure their API requests. _(`parameter-require-name`)_
+- **SHOULD** Providrequiredg an required property for parameters gets explicit about whether a parameter is required the path, query, or a header, making it clear to consumers where they can co…. _(`parameter-require-required-flag`)_
+- **SHOULD** Parameters must always possess a schema to help define the format and shape of the parameter, setting expections with consumers about what should be passed in. _(`parameter-require-schema`)_
+- **SHOULD** In Swagger 2.0 only body parameters carry a `schema`; every reusable `in: body` parameter must possess a schema to define the shape of the payload, setting expectations with consum…. _(`parameter-require-schema-oas2`)_
+- **SHOULD** Required param must have examples. _(`parameter-required-require-examples`)_
+- **SHOULD** Parameters must always have their schema type defined, being precise about what type of data can be inputted and used to configure an API request. _(`parameter-schema-require-type`)_
+- **SHOULD** Parameters must always use a schema reference that utilizes reusable schema that are defined as part of a centralized schema components library. _(`parameter-schema-use-ref`)_
+- **SHOULD** Path parameters MUST follow camelCase. _(`path-parameter-camel-case`)_
+- **SHOULD** Path parameters MUST follow CONSTANT_CASE (screaming snake_case). _(`path-parameter-constant-case`)_
+- **SHOULD** Path parameters MUST follow kebab-case. _(`path-parameter-kebab-case`)_
+- **SHOULD** Path parameters MUST follow PascalCase. _(`path-parameter-pascal-case`)_
+- **SHOULD** Path parameters MUST follow snake_case. _(`path-parameter-snake-case`)_
+- **SHOULD** Headers should be pascal-case. See Italian recommendation RAC_REST_NAME_003. _(`request-header-names-pascal-case`)_
+- **SHOULD** Operations should accept an Accept-Encoding request header so clients can negotiate a compressed (e.g. gzip) response. _(`request-support-accept-encoding`)_
+- **SHOULD** Operations should accept an Accept-Language request header so clients can negotiate a localized response (i18n). _(`request-support-accept-language`)_
+- **SHOULD** Operations should accept a baggage request header (W3C Baggage / OpenTelemetry) so application-defined context propagates across services. _(`request-support-baggage`)_
+- **SHOULD** Operations should accept a correlation / request ID request header (e.g. Correlation-Id or X-Request-Id) so a caller-supplied id can be traced end to end. _(`request-support-correlation-id`)_
+- **SHOULD** Operations should accept a tracestate request header (W3C Trace Context) so vendor-specific trace state propagates alongside traceparent. _(`request-support-tracestate`)_
+
+### Document
+- **SHOULD** The API contract MUST include a 'components' section. _(`document-require-component-section`)_
+- **SHOULD** Defining external documentation provides a link to detailed API guides, tutorials, and reference material beyond the OpenAPI spec. _(`document-require-external-docs`)_
+- **SHOULD** openapi document should declare a `jsonSchemaDialect` property. _(`document-require-jsonschemadialect`)_
+- **SHOULD** openapi document should declare a `openapi` property. _(`document-require-openapi`)_
+- **SHOULD** swagger document should declare a `swagger` property. _(`document-require-swagger`)_
+- **SHOULD** openapi document should declare a `paths` property. _(`document-require-path`)_
+- **SHOULD** Every OpenAPI should define at least one server URL. Analysis shows 97.2% of APIs define servers, providing consumers with the base URL needed to make requests. _(`document-require-server-defined`)_
+- **SHOULD** Every Swagger 2.0 API should define a host so consumers have the base URL needed to make requests. _(`document-require-server-defined-oas2`)_
+- **SHOULD** openapi document should declare a `webhooks` property. _(`document-require-webhooks`)_
+- **SHOULD** Spec should not be empty. _(`document-spec-must-not-be-empty`)_
+- **SHOULD** Info object must have "contact" object. _(`info-contact`)_
+- **SHOULD** Info "description" must be present and non-empty string. _(`info-description`)_
+- **SHOULD** Info object must have "license" object. _(`info-license`)_
+- **SHOULD** The `#/info/x-api-id` field can be used to associate an identifier to an API. This is useful to track an API even when its `#/info/title` changes. _(`info-require-api-identifier`)_
+- **SHOULD** APIs should use OpenAPI 3.x specification. _(`info-require-openapi-version-3x`)_
+- **SHOULD** Swagger 2.0 documents should declare `swagger: "2.0"` as their specification version. _(`info-require-openapi-version-3x-oas2`)_
+- **SHOULD** The `#/info/x-summary` can be used to specify a brief, one-liner description of your API: this is very useful for catalog purposes (eg. _(`info-require-summary`)_
+- **SHOULD** API MUST reference the URL of the Terms of Service in `#/info/termsOfService`. _(`info-require-terms-of-service`)_
+- **SHOULD** License object must include "url". _(`license-url`)_
+- **SHOULD** Markdown descriptions must not have "eval(". _(`no-eval-in-markdown`)_
+- **SHOULD** Markdown descriptions must not have `<script>` tags. _(`no-script-tags-in-markdown`)_
+- **SHOULD** Callbacks should not be defined in a webhook. _(`oas3_1-callbacks-in-webhook`)_
+- **SHOULD** OpenAPI "servers" must be present and non-empty array. _(`oas3-api-servers`)_
+- **SHOULD** Swagger 2.0 "host" must be present so the API base location is defined. _(`oas3-api-servers-oas2`)_
+- **SHOULD** Callbacks should not be defined within a callback. _(`oas3-callbacks-in-callbacks`)_
+- **SHOULD** Validate structure of OpenAPI v3 specification. _(`oas3-schema`)_
+- **SHOULD** Potentially unused component has been detected. _(`oas3-unused-component`)_
+- **SHOULD** OpenAPI object must have non-empty "tags" array. _(`openapi-tags`)_
+- **SHOULD** OpenAPI object must have alphabetical "tags". _(`openapi-tags-alphabetical`)_
+- **SHOULD** Operation "description" must be present and non-empty string. _(`operation-description`)_
+- **SHOULD** Operation must have "operationId". _(`operation-operationId`)_
+- **SHOULD** operationId must not characters that are invalid when used in URL. _(`operation-operationId-valid-in-url`)_
+- **SHOULD** Operation must not have more than a single tag. _(`operation-singular-tag`)_
+- **SHOULD** Operation must have at least one "2xx" or "3xx" response. _(`operation-success-response`)_
+- **SHOULD** Operation tags must be defined in global tags. _(`operation-tag-defined`)_
+- **SHOULD** Operation must have non-empty "tags" array. _(`operation-tags`)_
+- **SHOULD** You must define a `/status` path that can be used to health-check the API. _(`response-require-status-health-check-path`)_
+- **SHOULD** To improve interoperability, integer and number formats are constrained to a shared subset. See recommendation RAC_REST_FORMAT_004. _(`schema-integer-format-allowed-values`)_
+- **SHOULD** Schema of type number or integer must specify a format to express the associated datatype, eg. _(`schema-integer-require-format`)_
+- **SHOULD** To improve interoperability, integer and number formats are constrained to a shared subset. See recommendation RAC_REST_FORMAT_004. _(`schema-number-format-allowed-values`)_
+- **SHOULD** Having an info object provides much of the metadata needed for the collection of APIs described in an OpenAPI. _(`schema-require-info-object`)_
+- **SHOULD** There needs to be a central tags object applied to the OpenAPI, providing central tags that can be applied across all operations within an OpenAPI. _(`schema-require-tag-object`)_
+- **SHOULD** The API contract MUST include a 'security' section at the root level. _(`security-require-root`)_
+- **SHOULD** Security field MUST be present at the root of the spec with at least one item (ie. HTTPBearer, Token, APIKey, etc.). _(`security-require-root-scheme`)_
+- **SHOULD** There needs to be at least one tag applied to an OpenAPI, providing a key word or phrase that can be applied to API operations. _(`tag-require-at-least-one`)_
+- **SHOULD** Enum values must respect the specified type. _(`typed-enum`)_
+
+### Responses
+- **SHOULD** Cache usage SHOULD be extensively detailed in the `description` property to avoid data leaks or the usage of stale data. _(`document-cache-response-header`)_
+- **SHOULD** 202 Accepted responses should document a Location header pointing at the status or result resource clients can poll for the long-running operation. _(`response-202-location-header`)_
+- **SHOULD** 202 Accepted responses should document a Retry-After header suggesting how long clients should wait before polling the status resource. _(`response-202-retry-after`)_
+- **SHOULD** Cache usage SHOULD be extensively detailed in the `description` property to avoid data leaks or the usage of stale data. _(`response-cache-header-no-conflict`)_
+- **SHOULD** All APIs should return a valid http response code. _(`response-code-must-be-valid`)_
+- **SHOULD** If an Access-Control-Allow-Origin response header is documented, it should not hard-code a wildcard (*) — reflect specific allowed origins instead, especially for authenticated API…. _(`response-cors-allow-origin-no-wildcard`)_
+- **SHOULD** Deprecated operations should document a Deprecation response header (RFC 9745) signalling that the resource is deprecated. _(`response-deprecated-operation-deprecation-header`)_
+- **SHOULD** Deprecated operations should document a Sunset response header (RFC 8594) telling clients when the operation will be removed. _(`response-deprecated-operation-sunset-header`)_
+- **SHOULD** WARN: This rule is under implementation and just provides an hint. _(`response-error-schema-problem-property-names`)_
+- **SHOULD** GET success responses should define a Cache-Control header so clients and intermediaries know how to cache the representation. _(`response-get-cache-control`)_
+- **SHOULD** GET operations should document a 304 Not Modified response so ETag/Last-Modified conditional requests are handled. _(`response-get-document-304-not-modified`)_
+- **SHOULD** GET success responses should define an ETag header to enable validation-based caching and conditional requests. _(`response-get-etag`)_
+- **SHOULD** GET success responses should define a Last-Modified header to enable date-based conditional requests. _(`response-get-last-modified`)_
+- **SHOULD** GET success responses should provide a Link header (RFC 8288) with rel next/prev/first/last for pagination and navigation — the header-based alternative to an in-body paging object. _(`response-get-link-header`)_
+- **SHOULD** GET success responses should define a Vary header so caches key correctly on the request headers that affect the representation. _(`response-get-vary`)_
+- **SHOULD** Headers should be pascal-case. See Italian recommendation RAC_REST_NAME_003. _(`response-header-names-pascal-case`)_
+- **SHOULD** 'HTTP' headers SHOULD NOT start with 'X-' RFC6648. _(`response-header-no-x-prefix`)_
+- **SHOULD** Response must include ratelimit-x headers. _(`response-include-ratelimit-header`)_
+- **SHOULD** response key must be snake cased (e.g. snake_case). _(`response-keys-snake-case`)_
+- **SHOULD** Response names SHOULD be written in PascalCase. _(`response-names-pascal-case`)_
+- **SHOULD** Write operations (POST/PUT/PATCH) should define a 400 or 422 validation error response (OWASP API3 — reject malformed or unexpected properties). _(`response-owasp-api3-define-error-validation`)_
+- **SHOULD** Operations should define a 401 Unauthorized response (OWASP API8 — security misconfiguration; document auth failures). _(`response-owasp-api8-define-error-401`)_
+- **SHOULD** Operations should define a 500 Internal Server Error response (OWASP API8 — document server-error behavior). _(`response-owasp-api8-define-error-500`)_
+- **SHOULD** Responses should define the structured RateLimit header (current IETF draft) conveying quota, remaining, and reset in one field — the modern successor to the RateLimit-Limit/Remaining/Reset triplet. _(`response-ratelimit-header`)_
+- **SHOULD** Responses should define a RateLimit-Policy header documenting the quota policy and window (e.g. 100;w=60), so clients understand the limits in effect. _(`response-ratelimit-policy`)_
+- **SHOULD** Responses should return a correlation / request ID header (e.g. _(`response-return-correlation-id`)_
+- **SHOULD** Ratelimiting API preserves a service and limits attack scenario [see API4:2019 Lack of Resources & Rate Limiting](https://owasp.org/www-project-api-security). _(`response-success-require-ratelimit-header`)_
+- **SHOULD** When a client is either: * throttled out with a 429 status code; * warned about a temporary server issue with a 503 status code; the server should explicitly communicate how long t…. _(`response-throttled-require-retry-after`)_
+- **SHOULD** Write operations should document a 412 Precondition Failed response for failed conditional (If-Match) writes. _(`response-write-document-412-precondition-failed`)_
+- **SHOULD** Write success responses (POST/PUT/PATCH) should define an ETag header so clients receive the new entity tag after a write and can make subsequent conditional requests. _(`response-write-etag`)_
+
+### Info
+- **SHOULD** Contact object must have "name", "url" and "email". _(`contact-properties`)_
+- **SHOULD** Having a contact email address associated with the technical contract ensures that anyone who comes across the API has someone to email and get more information. _(`info-contact-require-email`)_
+- **SHOULD** Having a contact name associated with the technical contract ensures that anyone who comes across the API knows who to contact. _(`info-contact-require-name`)_
+- **SHOULD** Having a contact url associated with the technical contract ensures that anyone who comes across the API knows where to go to contact someone. _(`info-contact-require-url`)_
+- **SHOULD** Having a restriction on the length of the API description expressed as the OpenAPI info description helps provide constraints for consumers when adding a description, and keeps por…. _(`info-description-length-limit`)_
+- **SHOULD** Eval functions MUST not be included in the description of an API, keeping descriptions to just the text that is needed, and relying on the rest of the OpenAPI to describe what is possible. _(`info-description-no-eval-tag`)_
+- **SHOULD** Script tags MUST not be included in the description of an API, keeping descriptions to just the text that is needed, and relying on the rest of the OpenAPI to describe what is possible. _(`info-description-no-script-tag`)_
+- **SHOULD** The license object should include a name property identifying the license type, such as Apache 2.0, MIT, or a proprietary license. _(`info-license-require-name`)_
+- **SHOULD** The license object should include a URL linking to the full license text so API consumers can review the terms. _(`info-license-require-url`)_
+- **SHOULD** x-microcks extension must be valid. _(`info-microcks-extension-valid`)_
+- **SHOULD** The API should declare a version in info.version so every published version is inventoried and retired versions can be tracked (OWASP API9 — improper inventory management). _(`info-owasp-api9-document-version`)_
+- **SHOULD** Having a contact object associated with the technical contract ensures that anyone who comes across the API has someone to contact and get more information. _(`info-require-contact-2`)_
+- **SHOULD** Info section is missing a description. _(`info-require-description`)_
+- **SHOULD** Having a license defined in the info object clarifies the terms under which the API can be used. _(`info-require-license`)_
+- **SHOULD** Having a intuitive and helpful title for your API using the OpenAPI info title is the first impression you will make on the consumers of your API. _(`info-require-title`)_
+- **SHOULD** Publishing a version for your OpenAPI technical contract helps you communicate change with consumers using Semantic or date-based versioning published to the info version property. _(`info-skill-require-version`)_
+- **SHOULD** Having a consistent casing for the title for your API helps provide constraints for teams naming the API, but also keep consistent with other APIs from across teams. _(`info-title-capitalized`)_
+- **SHOULD** Having a limitation on the length of the title for your API helps provide constraints for teams naming it, but also keep consistent with other APIs from across teams. _(`info-title-max-length`)_
+- **SHOULD** The API version field should follow [semantic versioning](https://semver.org/#semantic-versioning-specification-semver). _(`info-version-must-be-semver`)_
+- **SHOULD** Info Version Must Use Semver. _(`info-version-must-use-semver`)_
+- **SHOULD** The API contract MUST have a stable version and MUST follow semantic versioning (e.g., '1.0.0'). Words like 'SNAPSHOT' or 'RELEASE' are not allowed. _(`info-version-semantic-and-stable`)_
+
+### Servers
+- **SHOULD** The API should declare its servers so all hosts and environments are inventoried — undocumented or stray non-production hosts are a common inventory-management risk (OWASP API9). _(`document-owasp-api9-server`)_
+- **SHOULD** The API should declare its host so all hosts and environments are inventoried — undocumented or stray non-production hosts are a common inventory-management risk (OWASP API9). _(`document-owasp-api9-server-oas2`)_
+- **SHOULD** Servers should not be defined in a webhook. _(`oas3_1-servers-in-webhook`)_
+- **SHOULD** Server URL must not point at example.com. _(`oas3-server-not-example.com`)_
+- **SHOULD** Host must not point at example.com. _(`oas3-server-not-example.com-oas2`)_
+- **SHOULD** Server URL must not have trailing slash. _(`oas3-server-trailing-slash`)_
+- **SHOULD** basePath must not have a trailing slash. _(`oas3-server-trailing-slash-oas2`)_
+- **SHOULD** Server variables must be defined and valid and there must be no unused variables. _(`oas3-server-variables`)_
+- **SHOULD** Port MUST NOT be specified or required to use the API, except for 'localhost' testing in a spec. _(`server-must-not-specify-port`)_
+- **SHOULD** Servers MUST be https and no other protocol is allowed unless using localhost. _(`server-must-use-https`)_
+- **SHOULD** APIs SHOULD be accessible under api.spscommerce.com. _(`server-on-approved-domain`)_
+- **SHOULD** Servers must have a description. _(`server-require-description`)_
+- **SHOULD** Servers MUST be https and no other protocol is allowed. _(`server-require-https`)_
+- **SHOULD** Servers must use https to ensure the origin of the responses and protect the integrity and the confidentiality of the communication. _(`server-require-https-2`)_
+- **SHOULD** The API must be served over https to protect the integrity and confidentiality of the communication. _(`server-require-https-2-oas2`)_
+- **SHOULD** API URLs versions should meet the Trimble API Standards. _(`server-url-include-version`)_
+- **SHOULD** The API base path should include a version segment (e.g. /v1) so consumers can pin to a major version. _(`server-url-include-version-oas2`)_
+- **SHOULD** API URLs should meet the Trimble API Standards. _(`server-url-meet-standards`)_
+- **SHOULD** Server URL SHOULD BE lowercase. _(`server-url-must-be-lowercase`)_
+- **SHOULD** API server URLs should use HTTPS to ensure encrypted communication between clients and servers, protecting sensitive data in transit. _(`server-url-require-https`)_
+- **SHOULD** The API should be served over HTTPS to ensure encrypted communication between clients and servers. _(`server-url-require-https-oas2`)_
+
+### Components
+- **SHOULD** example key must be snake cased (e.g. snake_case). _(`component-example-keys-snake-case`)_
+- **SHOULD** The API contract MUST include a 'securitySchemes' subsection under the 'components' section. _(`component-require-security-schemes`)_
+- **SHOULD** HTTP bearer security schemes should declare a bearerFormat (e.g. JWT) so consumers know the token type and tooling can validate it. _(`security-bearer-scheme-require-bearer-format`)_
+- **SHOULD** OAuth2 flows should define scopes so authorization is granular and least-privilege rather than all-or-nothing. _(`security-oauth-flow-require-scopes`)_
+- **SHOULD** OAuth2 security definitions should define scopes so authorization is granular and least-privilege rather than all-or-nothing. _(`security-oauth-flow-require-scopes-oas2`)_
+- **SHOULD** OpenID Connect security schemes should declare an openIdConnectUrl pointing at the discovery document so clients can configure themselves. _(`security-openidconnect-require-url`)_
+- **SHOULD** The OpenID Connect discovery URL (openIdConnectUrl) should use https so token/identity configuration is not retrieved over an insecure channel. _(`security-openidconnect-url-https`)_
+- **SHOULD** HTTP auth schemes should not use insecure mechanisms such as negotiate or oauth1 (OWASP API2). Prefer bearer with a vetted token. _(`security-owasp-api2-auth-insecure-schemes`)_
+- **SHOULD** API key security schemes should be sent in a header or cookie, never in the query string or path (OWASP API2 — credentials leak into logs and history). _(`security-owasp-api2-no-api-keys-in-url`)_
+- **SHOULD** API key security definitions should be sent in a header, never in the query string (OWASP API2 — credentials leak into logs and history). _(`security-owasp-api2-no-api-keys-in-url-oas2`)_
+- **SHOULD** Every security scheme should declare a description so consumers know how to authenticate (which token, where to get it, what scopes). _(`security-scheme-require-description`)_
+- **SHOULD** Every security definition should declare a description so consumers know how to authenticate (which token, where to get it, what scopes). _(`security-scheme-require-description-oas2`)_
+
+### Security
+- **SHOULD** Operation "security" values must match a scheme defined in the "components.securitySchemes" object. _(`oas3-operation-security-defined`)_
+- **SHOULD** Check operation security uses a defined security scheme. _(`operation-security-use-defined-scheme`)_
+- **SHOULD** Json Web Tokens RFC7519 is a compact, URL-safe means of representing claims to be transferred between two parties. _(`security-jwt-scheme-require-description`)_
+- **SHOULD** HTTP Basic is an insecure way to pass credentials around, use an alternative. _(`security-no-http-basic-auth`)_
+- **SHOULD** Consider a more secure alternative to HTTP Basic. In Swagger 2.0 basic auth is declared as a security definition with `type: basic`. _(`security-no-http-basic-auth-oas2`)_
+- **SHOULD** The OAuth2 authorization framework defines various [grant types](https://tools.ietf.org/html/rfc6749#section-1.3), most notably the [AuthorizationCode](https://tools.ietf.org/html/…. _(`security-oauth-disallow-insecure-flows`)_
+- **SHOULD** OAuth2 endpoints must use `https://`. _(`security-oauth-endpoints-require-https`)_
+- **SHOULD** Json Web Tokens RFC7519 is a compact, URL-safe means of representing claims to be transferred between two parties. _(`security-oauth-scheme-require-description`)_
+
+### Channels
+- **SHOULD** Parameter must have examples. _(`channel-parameter-require-examples`)_
+- **SHOULD** Message example must match params examples to form full mocks. _(`message-examples-form-complete-mocks`)_
+- **SHOULD** Message must have examples. _(`message-require-examples`)_
+- **SHOULD** x-microcks-operation extension must be valid. _(`operation-microcks-extension-valid`)_
+
+### Tags
+- **SHOULD** Each tag must have a unique name. _(`openapi-tags-uniqueness`)_
+- **SHOULD** Tag object must have "description". _(`tag-description`)_
+- **SHOULD** The first letter of each word in a tag being applied to APIs needs to be capitalized, keeping the tags being applied across APIs the same look and feel for organizing and publishing to documentation. _(`tag-names-title-case`)_
+- **SHOULD** Tags used as part of an OpenAPI should have names, providing a simple key word or phrase that represents the tag being applied to APIs. _(`tag-require-name`)_
+
+### Headers
+- **SHOULD** Headers must include examples. _(`header-require-examples`)_
+- **SHOULD** Do not use headers with X-. _(`path-no-x-prefixed-response-header`)_
+
+### Messages
+- **SHOULD** Message must have examples. _(`component-message-require-examples`)_
+
+### Examples
+- **SHOULD** API design SHOULD include real-like examples for request and response definitions. _(`document-require-realistic-examples`)_
+
+### Operations
+- **SHOULD** The PATCH specification explicits that the request body contains a "patch document" describing the changes to be applied to the target resource. _(`request-patch-media-type-not-plain-json`)_
+
+> If you must deviate from a MUST/SHOULD rule, say so explicitly and why — do not silently violate it.
